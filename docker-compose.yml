@@ -1,0 +1,12 @@
+services:
+  cartas:
+    build: .
+    container_name: cartas-a-desconocidos
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data       # persist SQLite database
+      - ./uploads:/app/uploads # persist uploaded images
+    restart: unless-stopped
