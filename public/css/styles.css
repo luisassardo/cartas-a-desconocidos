@@ -227,6 +227,12 @@ tr:hover td { background: var(--gray-50); }
 /* ── Hidden ───────────────────────────────────── */
 .hidden { display: none !important; }
 
+/* ── Code/Pre ────────────────────────────────── */
+code { background: var(--gray-100); padding: 0.1em 0.35em; border-radius: 0.25rem; font-family: 'JetBrains Mono', monospace; font-size: 0.85em; }
+pre { overflow-x: auto; }
+pre code { background: none; padding: 0; }
+details summary { user-select: none; }
+
 /* ── Animations ───────────────────────────────── */
 @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 .fade-in { animation: fadeIn 0.4s ease-out; }
