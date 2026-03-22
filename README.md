@@ -26,17 +26,21 @@ Incluye un programa especial para escribir a personas mayores en hospicios.
 ## ✨ Características
 
 - **Registro público** con seudónimos generados o personalizados
+- **Consulta de estado** — los participantes pueden volver a verificar si fueron emparejados y ver la dirección de su destinatario
 - **Encriptación AES-256-CBC** de todos los datos personales
 - **Emparejamiento aleatorio** con algoritmo de derangement (nadie se escribe a sí mismo)
-- **Programa de hospicio** — opción para escribir a residentes de hospicios
+- **Programa de hospicio** — opción activable/desactivable para escribir a residentes de hospicios
+- **Envío de correos integrado** — con un botón se envían todas las notificaciones via SMTP (Gmail o dominio propio)
 - **Panel de administración** completo:
   - 📊 Dashboard con estadísticas en tiempo real
   - 👥 Gestión de participantes (ver datos desencriptados, eliminar)
   - 🔀 Generación y guardado de emparejamientos aleatorios
-  - 📧 Control de estado de emails enviados
-  - ✏️ **Editor de textos** del sitio (todos los textos son editables en vivo)
+  - 📧 **Envío de emails** — individual, masivo, con vista previa y plantilla editable
+  - 📤 **Exportación CSV** para herramientas de email externas (Mailchimp, Brevo, SendGrid)
+  - ✏️ **Editor de textos** del sitio (todos los textos son editables en vivo, incluyendo plantilla de email)
   - 🖼️ **Gestión de imágenes** (subir, organizar por sección, eliminar)
-  - 📦 **Exportación** de base de datos completa como JSON
+  - ⚙️ Toggle de programa de hospicio
+  - 📦 Exportación de base de datos completa como JSON
   - ⚠️ Zona de peligro para resetear datos
 - **Zero dependencias externas** — SQLite embebido, sin necesidad de servicios cloud
 - **Listo para Docker** — despliegue con un solo comando
@@ -147,9 +151,56 @@ sudo certbot --nginx -d tudominio.com
 | `ADMIN_PASSWORD` | Contraseña del panel admin | `cartas-admin-2024` |
 | `ENCRYPTION_KEY` | Clave AES-256 para datos personales | `default-key` |
 | `SESSION_SECRET` | Secreto para tokens de sesión | `secret` |
+| `SMTP_HOST` | Servidor SMTP | *(vacío)* |
+| `SMTP_PORT` | Puerto SMTP | `587` |
+| `SMTP_USER` | Usuario SMTP | *(vacío)* |
+| `SMTP_PASS` | Contraseña SMTP | *(vacío)* |
+| `SMTP_FROM` | Dirección de remitente | `SMTP_USER` |
+| `SITE_URL` | URL pública del sitio (para links en emails) | `http://localhost:3000` |
+| `SMTP_DELAY_MS` | Pausa entre emails (ms) para evitar rate limits | `1500` |
 
 > [!WARNING]
 > **Cambia todas las claves por defecto antes de usar en producción.**
+
+## 📧 Configuración de email
+
+El envío de correos funciona con cualquier servidor SMTP. Dos opciones comunes:
+
+<details>
+<summary><strong>Gmail (más rápido para empezar)</strong></summary>
+
+1. Activa la [verificación en 2 pasos](https://myaccount.google.com/security) en tu cuenta Google
+2. Genera una [contraseña de aplicación](https://myaccount.google.com/apppasswords)
+3. Agrega a tu `.env`:
+
+```bash
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=tu-correo@gmail.com
+SMTP_PASS=xxxx-xxxx-xxxx-xxxx
+SMTP_FROM="Cartas a Desconocidos <tu-correo@gmail.com>"
+SITE_URL=https://tudominio.com
+```
+
+> Gmail permite ~500 emails/día con cuenta personal, ~2000 con Google Workspace.
+
+</details>
+
+<details>
+<summary><strong>Dominio propio (Resend, Brevo, Zoho, SendGrid, etc.)</strong></summary>
+
+```bash
+SMTP_HOST=smtp.tuservicio.com
+SMTP_PORT=587
+SMTP_USER=cartas@tudominio.com
+SMTP_PASS=tu-password-o-api-key
+SMTP_FROM="Cartas a Desconocidos <cartas@tudominio.com>"
+SITE_URL=https://tudominio.com
+```
+
+</details>
+
+Puedes verificar la conexión desde el panel admin en **Configuración > Configuración de Email > Probar conexión**.
 
 ## 📁 Estructura
 
@@ -186,6 +237,7 @@ cartas-a-desconocidos/
 | `GET` | `/api/pseudonym` | Generar seudónimo aleatorio |
 | `GET` | `/api/pseudonym/check/:name` | Verificar disponibilidad |
 | `POST` | `/api/register` | Registrar participante |
+| `POST` | `/api/status` | Consultar estado de emparejamiento (requiere seudónimo + email) |
 
 </details>
 
@@ -203,12 +255,18 @@ cartas-a-desconocidos/
 | `GET` | `/api/admin/matches` | Listar emparejamientos |
 | `POST` | `/api/admin/generate-matches` | Generar emparejamientos aleatorios |
 | `POST` | `/api/admin/save-matches` | Guardar emparejamientos generados |
-| `POST` | `/api/admin/send-emails` | Marcar emails como enviados |
+| `POST` | `/api/admin/send-emails` | Marcar emails como enviados (sin enviar) |
+| `POST` | `/api/admin/email/test` | Probar conexión SMTP |
+| `GET` | `/api/admin/email/status` | Estado de configuración SMTP |
+| `GET` | `/api/admin/email/preview/:matchId` | Vista previa de un email |
+| `POST` | `/api/admin/email/send/:matchId` | Enviar email individual |
+| `POST` | `/api/admin/email/send-all` | **Enviar todos los emails pendientes** |
 | `POST` | `/api/admin/clear-all` | Borrar todos los datos |
 | `PUT` | `/api/admin/config` | Actualizar textos del sitio |
 | `POST` | `/api/admin/images` | Subir imagen (multipart) |
 | `DELETE` | `/api/admin/images/:id` | Eliminar imagen |
 | `GET` | `/api/admin/export` | Exportar DB completa como JSON |
+| `GET` | `/api/admin/export-csv` | Exportar emparejamientos como CSV |
 
 </details>
 

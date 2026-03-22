@@ -5,6 +5,7 @@ const multer = require('multer');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -95,6 +96,29 @@ const defaultConfig = {
   'about_subtitle': 'Reviviendo el arte perdido de las cartas escritas a mano mientras protegemos tu privacidad.',
   'about_story': 'Este proyecto comenzó como una idea simple: conectar desconocidos a través de cartas escritas a mano. Originalmente, las personas enviaban sus nombres y direcciones, y nosotros las distribuíamos aleatoriamente entre los participantes.\n\nTambién manteníamos una lista de personas mayores que vivían en hospicios — aquellos que podrían apreciar una palabra amable de un desconocido.\n\nA medida que crecieron las preocupaciones de privacidad, supimos que necesitábamos evolucionar. La versión de hoy usa encriptación moderna y seudonimización.',
   'footer_text': '© 2024 Intercambio Anónimo de Cartas. Código abierto y enfocado en la privacidad.',
+  'hospice_enabled': 'true',
+  'email_subject': '✉️ ¡Tu emparejamiento está listo! — Cartas a Desconocidos',
+  'email_body': `Hola {{sender_pseudonym}},
+
+¡Buenas noticias! Ya tienes tu emparejamiento para el Intercambio Anónimo de Cartas.
+
+Tu destinatario es: {{receiver_pseudonym}}
+
+Envía tu carta a:
+{{receiver_address}}
+{{receiver_city}}, {{receiver_postal_code}}
+{{receiver_country}}
+{{hospice_note}}
+Recuerda:
+• NO incluyas tu nombre real ni dirección de remitente
+• Firma con tu seudónimo: {{sender_pseudonym}}
+• Sé amable, respetuoso y creativo
+
+También puedes consultar tu emparejamiento en cualquier momento en:
+{{site_url}}/status
+
+¡Feliz escritura!
+El equipo de Cartas a Desconocidos`,
 };
 
 const insertConfig = db.prepare('INSERT OR IGNORE INTO site_config (key, value) VALUES (?, ?)');
@@ -214,6 +238,53 @@ app.post('/api/register', (req, res) => {
   }
 });
 
+// Lookup participant status (public — requires pseudonym + email for verification)
+app.post('/api/status', (req, res) => {
+  try {
+    const { pseudonym, email } = req.body;
+    if (!pseudonym || !email) return res.status(400).json({ error: 'Seudónimo y correo son requeridos' });
+
+    const participant = db.prepare('SELECT * FROM participants WHERE pseudonym = ? AND email = ?')
+      .get(pseudonym.trim(), email.toLowerCase().trim());
+
+    if (!participant) {
+      return res.status(404).json({ error: 'No se encontró un registro con ese seudónimo y correo. Verifica los datos.' });
+    }
+
+    // Base response
+    const result = {
+      pseudonym: participant.pseudonym,
+      registered_at: participant.created_at,
+      matched: !!participant.matched,
+      is_hospice: !!participant.is_hospice,
+    };
+
+    // If matched, get the match details and decrypt the receiver's address
+    if (participant.matched) {
+      const match = db.prepare('SELECT * FROM matches WHERE sender_id = ?').get(participant.id);
+      if (match) {
+        const receiver = db.prepare('SELECT * FROM participants WHERE id = ?').get(match.receiver_id);
+        if (receiver) {
+          result.match = {
+            receiver_pseudonym: match.receiver_pseudonym,
+            receiver_address: decrypt(receiver.address_encrypted),
+            receiver_city: decrypt(receiver.city_encrypted),
+            receiver_postal_code: decrypt(receiver.postal_code_encrypted),
+            receiver_country: decrypt(receiver.country_encrypted),
+            receiver_is_hospice: !!receiver.is_hospice,
+            receiver_hospice_name: receiver.hospice_name || null,
+            matched_at: match.created_at,
+          };
+        }
+      }
+    }
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════
 //  ADMIN API
 // ══════════════════════════════════════════════════════
@@ -328,7 +399,170 @@ app.post('/api/admin/save-matches', requireAdmin, (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Mark emails sent
+// ── Email Infrastructure ──────────────────────────────
+function getTransporter() {
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  if (!host || !user || !pass) return null;
+
+  return nodemailer.createTransport({
+    host,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: parseInt(process.env.SMTP_PORT || '587') === 465,
+    auth: { user, pass },
+    tls: { rejectUnauthorized: false },
+  });
+}
+
+function buildEmail(match, sender, receiver) {
+  const siteUrl = process.env.SITE_URL || `http://localhost:${PORT}`;
+  const subject = db.prepare("SELECT value FROM site_config WHERE key = 'email_subject'").get()?.value || 'Tu emparejamiento está listo';
+  let body = db.prepare("SELECT value FROM site_config WHERE key = 'email_body'").get()?.value || '';
+
+  const hospiceNote = receiver.is_hospice && receiver.hospice_name
+    ? `\n🏥 Nota especial: Tu destinatario es un residente de hospicio en ${receiver.hospice_name}. Una carta amable significará mucho.\n`
+    : '';
+
+  const replacements = {
+    '{{sender_pseudonym}}': match.sender_pseudonym,
+    '{{receiver_pseudonym}}': match.receiver_pseudonym,
+    '{{receiver_address}}': decrypt(receiver.address_encrypted),
+    '{{receiver_city}}': decrypt(receiver.city_encrypted),
+    '{{receiver_postal_code}}': decrypt(receiver.postal_code_encrypted),
+    '{{receiver_country}}': decrypt(receiver.country_encrypted),
+    '{{hospice_note}}': hospiceNote,
+    '{{site_url}}': siteUrl,
+  };
+
+  for (const [key, val] of Object.entries(replacements)) {
+    body = body.split(key).join(val);
+  }
+
+  return { subject, body, to: sender.email };
+}
+
+// Test SMTP connection
+app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
+  const transporter = getTransporter();
+  if (!transporter) {
+    return res.status(400).json({
+      error: 'SMTP no configurado. Agrega SMTP_HOST, SMTP_USER y SMTP_PASS en el archivo .env y reinicia el servidor.',
+      configured: false,
+    });
+  }
+  try {
+    await transporter.verify();
+    res.json({ success: true, message: 'Conexión SMTP exitosa' });
+  } catch (err) {
+    res.status(400).json({ error: `Error de conexión SMTP: ${err.message}`, configured: true });
+  }
+});
+
+// Get SMTP status
+app.get('/api/admin/email/status', requireAdmin, (req, res) => {
+  const configured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  res.json({
+    configured,
+    host: process.env.SMTP_HOST || '',
+    user: process.env.SMTP_USER || '',
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+  });
+});
+
+// Preview email for a specific match
+app.get('/api/admin/email/preview/:matchId', requireAdmin, (req, res) => {
+  try {
+    const match = db.prepare('SELECT * FROM matches WHERE id = ?').get(req.params.matchId);
+    if (!match) return res.status(404).json({ error: 'Emparejamiento no encontrado' });
+
+    const sender = db.prepare('SELECT * FROM participants WHERE id = ?').get(match.sender_id);
+    const receiver = db.prepare('SELECT * FROM participants WHERE id = ?').get(match.receiver_id);
+    if (!sender || !receiver) return res.status(404).json({ error: 'Participantes no encontrados' });
+
+    const email = buildEmail(match, sender, receiver);
+    res.json({ ...email, sender_pseudonym: match.sender_pseudonym, receiver_pseudonym: match.receiver_pseudonym });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Send single email
+app.post('/api/admin/email/send/:matchId', requireAdmin, async (req, res) => {
+  const transporter = getTransporter();
+  if (!transporter) return res.status(400).json({ error: 'SMTP no configurado' });
+
+  try {
+    const match = db.prepare('SELECT * FROM matches WHERE id = ?').get(req.params.matchId);
+    if (!match) return res.status(404).json({ error: 'Emparejamiento no encontrado' });
+
+    const sender = db.prepare('SELECT * FROM participants WHERE id = ?').get(match.sender_id);
+    const receiver = db.prepare('SELECT * FROM participants WHERE id = ?').get(match.receiver_id);
+    if (!sender || !receiver) return res.status(404).json({ error: 'Participantes no encontrados' });
+
+    const email = buildEmail(match, sender, receiver);
+    const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+
+    await transporter.sendMail({
+      from,
+      to: email.to,
+      subject: email.subject,
+      text: email.body,
+    });
+
+    db.prepare('UPDATE matches SET emails_sent = 1 WHERE id = ?').run(match.id);
+    res.json({ success: true, to: email.to });
+  } catch (err) {
+    res.status(500).json({ error: `Error enviando a ${req.params.matchId}: ${err.message}` });
+  }
+});
+
+// Send ALL pending emails
+app.post('/api/admin/email/send-all', requireAdmin, async (req, res) => {
+  const transporter = getTransporter();
+  if (!transporter) return res.status(400).json({ error: 'SMTP no configurado' });
+
+  try {
+    await transporter.verify();
+  } catch (err) {
+    return res.status(400).json({ error: `Conexión SMTP fallida: ${err.message}` });
+  }
+
+  const pendingMatches = db.prepare('SELECT * FROM matches WHERE emails_sent = 0').all();
+  if (!pendingMatches.length) return res.json({ success: true, sent: 0, failed: 0, results: [] });
+
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const results = [];
+  let sent = 0, failed = 0;
+  const delayMs = parseInt(process.env.SMTP_DELAY_MS || '1500'); // delay between emails
+
+  for (const match of pendingMatches) {
+    const sender = db.prepare('SELECT * FROM participants WHERE id = ?').get(match.sender_id);
+    const receiver = db.prepare('SELECT * FROM participants WHERE id = ?').get(match.receiver_id);
+
+    if (!sender || !receiver) {
+      results.push({ match_id: match.id, pseudonym: match.sender_pseudonym, status: 'error', error: 'Participante no encontrado' });
+      failed++;
+      continue;
+    }
+
+    try {
+      const email = buildEmail(match, sender, receiver);
+      await transporter.sendMail({ from, to: email.to, subject: email.subject, text: email.body });
+      db.prepare('UPDATE matches SET emails_sent = 1 WHERE id = ?').run(match.id);
+      results.push({ match_id: match.id, pseudonym: match.sender_pseudonym, to: email.to, status: 'sent' });
+      sent++;
+    } catch (err) {
+      results.push({ match_id: match.id, pseudonym: match.sender_pseudonym, status: 'error', error: err.message });
+      failed++;
+    }
+
+    // Delay between emails to avoid rate limits
+    if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+  }
+
+  res.json({ success: true, sent, failed, total: pendingMatches.length, results });
+});
+
+// Mark emails sent (manual, without actually sending)
 app.post('/api/admin/send-emails', requireAdmin, (req, res) => {
   try {
     db.prepare('UPDATE matches SET emails_sent = 1 WHERE emails_sent = 0').run();
@@ -393,6 +627,59 @@ app.get('/api/admin/export', requireAdmin, (req, res) => {
   }));
   const matches = db.prepare('SELECT * FROM matches').all();
   res.json({ participants, matches, exported_at: new Date().toISOString() });
+});
+
+// Export CSV for bulk email tools (Mailchimp, SendGrid, Brevo, etc.)
+app.get('/api/admin/export-csv', requireAdmin, (req, res) => {
+  try {
+    const matches = db.prepare('SELECT * FROM matches ORDER BY created_at DESC').all();
+    if (!matches.length) return res.status(404).json({ error: 'No hay emparejamientos para exportar' });
+
+    const rows = [];
+    for (const m of matches) {
+      const sender = db.prepare('SELECT * FROM participants WHERE id = ?').get(m.sender_id);
+      const receiver = db.prepare('SELECT * FROM participants WHERE id = ?').get(m.receiver_id);
+      if (!sender || !receiver) continue;
+
+      rows.push({
+        sender_email: sender.email,
+        sender_pseudonym: m.sender_pseudonym,
+        receiver_pseudonym: m.receiver_pseudonym,
+        receiver_address: decrypt(receiver.address_encrypted),
+        receiver_city: decrypt(receiver.city_encrypted),
+        receiver_postal_code: decrypt(receiver.postal_code_encrypted),
+        receiver_country: decrypt(receiver.country_encrypted),
+        receiver_is_hospice: receiver.is_hospice ? 'Sí' : 'No',
+        receiver_hospice_name: receiver.hospice_name || '',
+        emails_sent: m.emails_sent ? 'Sí' : 'No',
+        matched_at: m.created_at,
+      });
+    }
+
+    // Build CSV
+    const headers = [
+      'Email Remitente','Seudónimo Remitente','Seudónimo Destinatario',
+      'Dirección Destinatario','Ciudad','Código Postal','País',
+      'Es Hospicio','Nombre Hospicio','Email Enviado','Fecha Emparejamiento'
+    ];
+    const csvEscape = (val) => {
+      const s = String(val || '');
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const csvRows = [headers.join(',')];
+    for (const r of rows) {
+      csvRows.push([
+        r.sender_email, r.sender_pseudonym, r.receiver_pseudonym,
+        r.receiver_address, r.receiver_city, r.receiver_postal_code, r.receiver_country,
+        r.receiver_is_hospice, r.receiver_hospice_name, r.emails_sent, r.matched_at,
+      ].map(csvEscape).join(','));
+    }
+
+    const csv = '\uFEFF' + csvRows.join('\r\n'); // BOM for Excel UTF-8
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="cartas-emparejamientos-${new Date().toISOString().slice(0,10)}.csv"`);
+    res.send(csv);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── SPA Fallback ───────────────────────────────────────
