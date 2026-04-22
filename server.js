@@ -5,7 +5,7 @@ const multer = require('multer');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
-const nodemailer = require('nodemailer');
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -400,22 +400,30 @@ app.post('/api/admin/save-matches', requireAdmin, (req, res) => {
 });
 
 // ── Email Infrastructure ──────────────────────────────
-function getTransporter() {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  if (!host || !user || !pass) return null;
+async function sendEmailViaBrevo(to, subject, body, from) {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) throw new Error('BREVO_API_KEY not configured');
 
-  return nodemailer.createTransport({
-    host,
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: parseInt(process.env.SMTP_PORT || '587') === 465,
-    requireTLS: true,
-    auth: { user, pass },
-    tls: { rejectUnauthorized: true },
-    connectionTimeout: 10000,
-    socketTimeout: 10000,
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      sender: { email: from },
+      to: [{ email: to }],
+      subject,
+      htmlContent: body,
+    }),
   });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Brevo API error: ${error.message}`);
+  }
+
+  return response.json();
 }
 
 function buildEmail(match, sender, receiver) {
@@ -445,31 +453,34 @@ function buildEmail(match, sender, receiver) {
   return { subject, body, to: sender.email };
 }
 
-// Test SMTP connection
+// Test Brevo API connection
 app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
-  const transporter = getTransporter();
-  if (!transporter) {
+  if (!process.env.BREVO_API_KEY) {
     return res.status(400).json({
-      error: 'SMTP no configurado. Agrega SMTP_HOST, SMTP_USER y SMTP_PASS en el archivo .env y reinicia el servidor.',
+      error: 'Brevo API no configurada. Agrega BREVO_API_KEY en el archivo .env y reinicia el servidor.',
       configured: false,
     });
   }
   try {
-    await transporter.verify();
-    res.json({ success: true, message: 'Conexión SMTP exitosa' });
+    const response = await fetch('https://api.brevo.com/v3/account', {
+      headers: { 'api-key': process.env.BREVO_API_KEY },
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      return res.status(400).json({ error: `Error de API Brevo: ${error.message}`, configured: true });
+    }
+    res.json({ success: true, message: 'Conexión con Brevo API exitosa' });
   } catch (err) {
-    res.status(400).json({ error: `Error de conexión SMTP: ${err.message}`, configured: true });
+    res.status(400).json({ error: `Error de conexión: ${err.message}`, configured: true });
   }
 });
 
-// Get SMTP status
+// Get Brevo API status
 app.get('/api/admin/email/status', requireAdmin, (req, res) => {
-  const configured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  const configured = !!process.env.BREVO_API_KEY;
   res.json({
     configured,
-    host: process.env.SMTP_HOST || '',
-    user: process.env.SMTP_USER || '',
-    from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+    from: process.env.BREVO_FROM || '',
   });
 });
 
@@ -490,8 +501,7 @@ app.get('/api/admin/email/preview/:matchId', requireAdmin, (req, res) => {
 
 // Send single email
 app.post('/api/admin/email/send/:matchId', requireAdmin, async (req, res) => {
-  const transporter = getTransporter();
-  if (!transporter) return res.status(400).json({ error: 'SMTP no configurado' });
+  if (!process.env.BREVO_API_KEY) return res.status(400).json({ error: 'Brevo API no configurada' });
 
   try {
     const match = db.prepare('SELECT * FROM matches WHERE id = ?').get(req.params.matchId);
@@ -502,14 +512,9 @@ app.post('/api/admin/email/send/:matchId', requireAdmin, async (req, res) => {
     if (!sender || !receiver) return res.status(404).json({ error: 'Participantes no encontrados' });
 
     const email = buildEmail(match, sender, receiver);
-    const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+    const from = process.env.BREVO_FROM;
 
-    await transporter.sendMail({
-      from,
-      to: email.to,
-      subject: email.subject,
-      text: email.body,
-    });
+    await sendEmailViaBrevo(email.to, email.subject, email.body, from);
 
     db.prepare('UPDATE matches SET emails_sent = 1 WHERE id = ?').run(match.id);
     res.json({ success: true, to: email.to });
@@ -520,22 +525,15 @@ app.post('/api/admin/email/send/:matchId', requireAdmin, async (req, res) => {
 
 // Send ALL pending emails
 app.post('/api/admin/email/send-all', requireAdmin, async (req, res) => {
-  const transporter = getTransporter();
-  if (!transporter) return res.status(400).json({ error: 'SMTP no configurado' });
-
-  try {
-    await transporter.verify();
-  } catch (err) {
-    return res.status(400).json({ error: `Conexión SMTP fallida: ${err.message}` });
-  }
+  if (!process.env.BREVO_API_KEY) return res.status(400).json({ error: 'Brevo API no configurada' });
 
   const pendingMatches = db.prepare('SELECT * FROM matches WHERE emails_sent = 0').all();
   if (!pendingMatches.length) return res.json({ success: true, sent: 0, failed: 0, results: [] });
 
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const from = process.env.BREVO_FROM;
   const results = [];
   let sent = 0, failed = 0;
-  const delayMs = parseInt(process.env.SMTP_DELAY_MS || '1500'); // delay between emails
+  const delayMs = parseInt(process.env.EMAIL_DELAY_MS || '1500'); // delay between emails
 
   for (const match of pendingMatches) {
     const sender = db.prepare('SELECT * FROM participants WHERE id = ?').get(match.sender_id);
@@ -549,7 +547,7 @@ app.post('/api/admin/email/send-all', requireAdmin, async (req, res) => {
 
     try {
       const email = buildEmail(match, sender, receiver);
-      await transporter.sendMail({ from, to: email.to, subject: email.subject, text: email.body });
+      await sendEmailViaBrevo(email.to, email.subject, email.body, from);
       db.prepare('UPDATE matches SET emails_sent = 1 WHERE id = ?').run(match.id);
       results.push({ match_id: match.id, pseudonym: match.sender_pseudonym, to: email.to, status: 'sent' });
       sent++;
