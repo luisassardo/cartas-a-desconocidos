@@ -412,7 +412,9 @@ function getTransporter() {
     secure: parseInt(process.env.SMTP_PORT || '587') === 465,
     requireTLS: true,
     auth: { user, pass },
-    tls: { rejectUnauthorized: false },
+    tls: { rejectUnauthorized: true },
+    connectionTimeout: 10000,
+    socketTimeout: 10000,
   });
 }
 
