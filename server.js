@@ -77,26 +77,25 @@ const defaultConfig = {
   'cta_secondary': 'Saber Más',
   'feature1_title': 'Anonimato Completo',
   'feature1_text': 'Tu identidad está protegida con seudónimos. Solo la persona que te escribe ve tu dirección, y nunca saben tu nombre real.',
-  'feature2_title': 'Escribe a Pacientes de Hospicio',
-  'feature2_text': 'Elige escribir a residentes ancianos en hospicios que amarían recibir una carta amable y reflexiva de un desconocido.',
+  'feature2_title': 'Cartas de Verdad, en Papel',
+  'feature2_text': 'Nada de mensajes instantáneos: escribes a mano y tu carta viaja por correo postal hasta un buzón real. El placer analógico de recibir algo físico de otra persona.',
   'feature3_title': 'Emparejamiento Aleatorio',
   'feature3_text': 'Nuestro sistema empareja participantes aleatoriamente cuando hay suficientes personas registradas. Todos escriben, todos reciben.',
   'howit_title': 'Cómo Funciona',
   'step1_title': 'Regístrate',
-  'step1_desc': 'Regístrate con un seudónimo',
+  'step1_desc': 'Elige un seudónimo y deja tu dirección cifrada.',
   'step2_title': 'Espera',
-  'step2_desc': 'Recolectamos participantes',
+  'step2_desc': 'Reunimos participantes hasta formar una ronda.',
   'step3_title': 'Empareja',
-  'step3_desc': 'Recibe tu asignación',
+  'step3_desc': 'Recibes por correo el seudónimo y la dirección de tu destinatario.',
   'step4_title': 'Escribe',
-  'step4_desc': '¡Envía tu carta!',
+  'step4_desc': 'Escribes a mano, firmas con tu seudónimo y la envías.',
   'cta2_title': '¿Listo para Compartir Alegría?',
   'cta2_text': 'Únete a cientos de personas conectando a través de cartas escritas a mano.',
   'about_title': 'Sobre el Intercambio Anónimo de Cartas',
   'about_subtitle': 'Reviviendo el arte perdido de las cartas escritas a mano mientras protegemos tu privacidad.',
-  'about_story': 'Este proyecto comenzó como una idea simple: conectar desconocidos a través de cartas escritas a mano. Originalmente, las personas enviaban sus nombres y direcciones, y nosotros las distribuíamos aleatoriamente entre los participantes.\n\nTambién manteníamos una lista de personas mayores que vivían en hospicios — aquellos que podrían apreciar una palabra amable de un desconocido.\n\nA medida que crecieron las preocupaciones de privacidad, supimos que necesitábamos evolucionar. La versión de hoy usa encriptación moderna y seudonimización.',
-  'footer_text': '© 2024 Intercambio Anónimo de Cartas. Código abierto y enfocado en la privacidad.',
-  'hospice_enabled': 'true',
+  'about_story': 'Este proyecto comenzó como una idea simple: conectar desconocidos a través de cartas escritas a mano. Originalmente, las personas enviaban sus nombres y direcciones, y nosotros las distribuíamos aleatoriamente entre los participantes.\n\nA medida que crecieron las preocupaciones de privacidad, supimos que necesitábamos evolucionar. La versión de hoy usa encriptación moderna y seudonimización — pero conserva lo esencial: papel, tinta y la emoción de recibir una carta de alguien que no conoces.',
+  'footer_text': 'Cartas a Desconocidos · Código abierto y enfocado en la privacidad.',
   'email_subject': '✉️ ¡Tu emparejamiento está listo! — Cartas a Desconocidos',
   'email_body': `Hola {{sender_pseudonym}},
 
@@ -108,7 +107,7 @@ Envía tu carta a:
 {{receiver_address}}
 {{receiver_city}}, {{receiver_postal_code}}
 {{receiver_country}}
-{{hospice_note}}
+
 Recuerda:
 • NO incluyas tu nombre real ni dirección de remitente
 • Firma con tu seudónimo: {{sender_pseudonym}}
@@ -125,6 +124,26 @@ const insertConfig = db.prepare('INSERT OR IGNORE INTO site_config (key, value) 
 for (const [key, value] of Object.entries(defaultConfig)) {
   insertConfig.run(key, value);
 }
+
+// ── Migración idempotente: retira los textos de "hospicios" de bases
+//    ya existentes, sin pisar ediciones propias del administrador.
+//    Solo reemplaza si el valor guardado sigue siendo el default viejo.
+const legacyHospiceValues = {
+  'feature2_title': 'Escribe a Pacientes de Hospicio',
+  'feature2_text': 'Elige escribir a residentes ancianos en hospicios que amarían recibir una carta amable y reflexiva de un desconocido.',
+  'about_story': 'Este proyecto comenzó como una idea simple: conectar desconocidos a través de cartas escritas a mano. Originalmente, las personas enviaban sus nombres y direcciones, y nosotros las distribuíamos aleatoriamente entre los participantes.\n\nTambién manteníamos una lista de personas mayores que vivían en hospicios — aquellos que podrían apreciar una palabra amable de un desconocido.\n\nA medida que crecieron las preocupaciones de privacidad, supimos que necesitábamos evolucionar. La versión de hoy usa encriptación moderna y seudonimización.',
+};
+const updateIfLegacy = db.prepare('UPDATE site_config SET value = ? WHERE key = ? AND value = ?');
+for (const [key, oldVal] of Object.entries(legacyHospiceValues)) {
+  updateIfLegacy.run(defaultConfig[key], key, oldVal);
+}
+// Refresca el footer viejo con año fijo si no fue editado a mano.
+updateIfLegacy.run(defaultConfig['footer_text'], 'footer_text', '© 2024 Intercambio Anónimo de Cartas. Código abierto y enfocado en la privacidad.');
+// Retira la línea {{hospice_note}} de plantillas de email guardadas.
+db.prepare(`UPDATE site_config SET value = REPLACE(value, '{{hospice_note}}' || char(10), '') WHERE key = 'email_body'`).run();
+db.prepare(`UPDATE site_config SET value = REPLACE(value, '{{hospice_note}}', '') WHERE key = 'email_body'`).run();
+// La opción de hospicios ya no existe en la interfaz.
+db.prepare(`DELETE FROM site_config WHERE key = 'hospice_enabled'`).run();
 
 // ── Encryption ─────────────────────────────────────────
 const ENC_KEY = process.env.ENCRYPTION_KEY || 'default-key';
@@ -214,7 +233,7 @@ app.get('/api/pseudonym/check/:name', (req, res) => {
 // Register participant
 app.post('/api/register', (req, res) => {
   try {
-    const { pseudonym, email, name, address, city, postal_code, country, is_hospice, hospice_name } = req.body;
+    const { pseudonym, email, name, address, city, postal_code, country } = req.body;
     
     if (!pseudonym || !email || !name || !address || !city || !postal_code || !country) {
       return res.status(400).json({ error: 'Todos los campos requeridos deben completarse' });
@@ -229,8 +248,8 @@ app.post('/api/register', (req, res) => {
     const id = crypto.randomBytes(16).toString('hex');
     db.prepare(`
       INSERT INTO participants (id, pseudonym, email, name_encrypted, address_encrypted, city_encrypted, postal_code_encrypted, country_encrypted, is_hospice, hospice_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, pseudonym, email.toLowerCase().trim(), encrypt(name), encrypt(address), encrypt(city), encrypt(postal_code), encrypt(country), is_hospice ? 1 : 0, hospice_name || null);
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)
+    `).run(id, pseudonym, email.toLowerCase().trim(), encrypt(name), encrypt(address), encrypt(city), encrypt(postal_code), encrypt(country));
 
     res.json({ success: true, pseudonym });
   } catch (err) {
@@ -336,10 +355,9 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   const total = db.prepare('SELECT COUNT(*) as c FROM participants').get().c;
   const unmatched = db.prepare('SELECT COUNT(*) as c FROM participants WHERE matched = 0').get().c;
   const matched = db.prepare('SELECT COUNT(*) as c FROM participants WHERE matched = 1').get().c;
-  const hospice = db.prepare('SELECT COUNT(*) as c FROM participants WHERE is_hospice = 1').get().c;
   const totalMatches = db.prepare('SELECT COUNT(*) as c FROM matches').get().c;
   const pendingEmails = db.prepare('SELECT COUNT(*) as c FROM matches WHERE emails_sent = 0').get().c;
-  res.json({ total, unmatched, matched, hospice, totalMatches, pendingEmails });
+  res.json({ total, unmatched, matched, totalMatches, pendingEmails });
 });
 
 // Get matches
@@ -431,10 +449,6 @@ function buildEmail(match, sender, receiver) {
   const subject = db.prepare("SELECT value FROM site_config WHERE key = 'email_subject'").get()?.value || 'Tu emparejamiento está listo';
   let body = db.prepare("SELECT value FROM site_config WHERE key = 'email_body'").get()?.value || '';
 
-  const hospiceNote = receiver.is_hospice && receiver.hospice_name
-    ? `\n🏥 Nota especial: Tu destinatario es un residente de hospicio en ${receiver.hospice_name}. Una carta amable significará mucho.\n`
-    : '';
-
   const replacements = {
     '{{sender_pseudonym}}': match.sender_pseudonym,
     '{{receiver_pseudonym}}': match.receiver_pseudonym,
@@ -442,7 +456,7 @@ function buildEmail(match, sender, receiver) {
     '{{receiver_city}}': decrypt(receiver.city_encrypted),
     '{{receiver_postal_code}}': decrypt(receiver.postal_code_encrypted),
     '{{receiver_country}}': decrypt(receiver.country_encrypted),
-    '{{hospice_note}}': hospiceNote,
+    '{{hospice_note}}': '',
     '{{site_url}}': siteUrl,
   };
 
@@ -650,8 +664,6 @@ app.get('/api/admin/export-csv', requireAdmin, (req, res) => {
         receiver_city: decrypt(receiver.city_encrypted),
         receiver_postal_code: decrypt(receiver.postal_code_encrypted),
         receiver_country: decrypt(receiver.country_encrypted),
-        receiver_is_hospice: receiver.is_hospice ? 'Sí' : 'No',
-        receiver_hospice_name: receiver.hospice_name || '',
         emails_sent: m.emails_sent ? 'Sí' : 'No',
         matched_at: m.created_at,
       });
@@ -661,7 +673,7 @@ app.get('/api/admin/export-csv', requireAdmin, (req, res) => {
     const headers = [
       'Email Remitente','Seudónimo Remitente','Seudónimo Destinatario',
       'Dirección Destinatario','Ciudad','Código Postal','País',
-      'Es Hospicio','Nombre Hospicio','Email Enviado','Fecha Emparejamiento'
+      'Email Enviado','Fecha Emparejamiento'
     ];
     const csvEscape = (val) => {
       const s = String(val || '');
@@ -672,7 +684,7 @@ app.get('/api/admin/export-csv', requireAdmin, (req, res) => {
       csvRows.push([
         r.sender_email, r.sender_pseudonym, r.receiver_pseudonym,
         r.receiver_address, r.receiver_city, r.receiver_postal_code, r.receiver_country,
-        r.receiver_is_hospice, r.receiver_hospice_name, r.emails_sent, r.matched_at,
+        r.emails_sent, r.matched_at,
       ].map(csvEscape).join(','));
     }
 

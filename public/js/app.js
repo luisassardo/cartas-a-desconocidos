@@ -68,82 +68,199 @@ const App = (() => {
   //  VIEWS
   // ══════════════════════════════════════════════════
 
+  // Marca: dos puntos unidos por un hilo
+  const brandMark = `<svg class="brand-mark" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 21 C 10 6, 20 24, 26 9" stroke="var(--clay)" stroke-width="2" stroke-linecap="round"/><circle cx="4" cy="21" r="3" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><circle cx="26" cy="9" r="3" fill="var(--paper)" stroke="var(--clay)" stroke-width="2"/></svg>`;
+
   function renderHome() {
+    const now = new Date();
+    const meses = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+    const pmDate = `${String(now.getDate()).padStart(2,'0')} ${meses[now.getMonth()]}`;
+
+    const features = [
+      { n: '01', k: 'ANÓNIMO', t: c('feature1_title'), d: c('feature1_text') },
+      { n: '02', k: 'EN PAPEL', t: c('feature2_title'), d: c('feature2_text') },
+      { n: '03', k: 'AL AZAR',  t: c('feature3_title'), d: c('feature3_text') },
+    ];
+
     return `
     <div class="page-bg">
-      <section class="section" style="padding-top:5rem;padding-bottom:3rem;">
-        <div class="container-md text-center fade-in">
-          <div class="icon-circle icon-circle-xl bg-indigo" style="margin:0 auto 2rem;">${ic('mail',40)}</div>
-          <h1>${c('hero_title')}</h1>
-          <p style="color:var(--gray-600);max-width:600px;margin:1.5rem auto;font-size:1.1rem;">${c('hero_subtitle')}</p>
-          <div class="flex justify-center gap-4" style="margin-top:2rem;flex-wrap:wrap;">
+      <header class="topbar">
+        <div class="brand" onclick="App.navigate('home')">${brandMark}<span>Cartas a Desconocidos</span></div>
+        <nav class="topbar-links">
+          <button class="btn btn-ghost hide-sm" onclick="App.navigate('status')">Consultar estado</button>
+          <button class="btn btn-ghost hide-sm" onclick="App.navigate('about')">${c('cta_secondary')}</button>
+          <button class="btn btn-primary btn-sm" onclick="App.navigate('register')">${c('cta_button')}</button>
+        </nav>
+      </header>
+
+      <section class="hero">
+        <div class="hero-inner">
+          <span class="eyebrow" data-reveal>Intercambio anónimo de cartas</span>
+          <h1 data-reveal>${c('hero_title')}</h1>
+          <p class="lede" data-reveal>${c('hero_subtitle')}</p>
+          <div class="hero-cta" data-reveal>
             <button class="btn btn-primary btn-lg" onclick="App.navigate('register')">${c('cta_button')}</button>
-            <button class="btn btn-outline btn-lg" onclick="App.navigate('status')">${ic('search',18)} Consultar Estado</button>
-            <button class="btn btn-outline btn-lg" onclick="App.navigate('about')">${c('cta_secondary')}</button>
+            <button class="btn btn-outline btn-lg" onclick="App.navigate('status')">${ic('search',18)} Consultar estado</button>
           </div>
+        </div>
+        <div class="thread-stage" data-reveal aria-hidden="true">
+          <svg viewBox="0 0 900 210" xmlns="http://www.w3.org/2000/svg">
+            <path class="thread-path secondary" d="M96,150 C 320,66 560,196 804,92"/>
+            <path id="hero-arc" class="thread-path" d="M96,140 C 300,44 560,190 804,80"/>
+            <circle class="node-dot clay" cx="96" cy="140" r="7"/>
+            <circle class="node-dot" cx="804" cy="80" r="7"/>
+            <text class="node-label" x="96" y="176" text-anchor="middle">tú, remitente</text>
+            <text class="coord" x="96" y="192" text-anchor="middle">14.6°N · 90.5°W</text>
+            <text class="node-label" x="804" y="52" text-anchor="middle">un desconocido</text>
+            <text class="coord" x="804" y="36" text-anchor="middle">?°N · ?°E</text>
+            <text id="hero-stamp" class="travel-stamp" x="96" y="140" text-anchor="middle" dominant-baseline="central">✉️</text>
+          </svg>
         </div>
       </section>
 
-      <section class="section" style="padding-top:2rem;">
-        <div class="container grid grid-3">
-          <div class="card slide-up" style="animation-delay:0.1s">
-            <div class="card-body">
-              <div class="icon-circle bg-purple" style="margin-bottom:1rem;">${ic('shield')}</div>
-              <h3>${c('feature1_title')}</h3>
-              <p style="color:var(--gray-600);margin-top:0.5rem;font-size:0.95rem;">${c('feature1_text')}</p>
-            </div>
-          </div>
-          ${c('hospice_enabled') === 'true' ? `<div class="card slide-up" style="animation-delay:0.2s">
-            <div class="card-body">
-              <div class="icon-circle bg-pink" style="margin-bottom:1rem;">${ic('heart')}</div>
-              <h3>${c('feature2_title')}</h3>
-              <p style="color:var(--gray-600);margin-top:0.5rem;font-size:0.95rem;">${c('feature2_text')}</p>
-            </div>
-          </div>` : ''}
-          <div class="card slide-up" style="animation-delay:0.3s">
-            <div class="card-body">
-              <div class="icon-circle bg-indigo" style="margin-bottom:1rem;">${ic('users')}</div>
-              <h3>${c('feature3_title')}</h3>
-              <p style="color:var(--gray-600);margin-top:0.5rem;font-size:0.95rem;">${c('feature3_text')}</p>
-            </div>
-          </div>
-        </div>
-      </section>
+      <hr class="rule-dashed">
 
-      <section class="section section-white">
-        <div class="container-md">
-          <h2 class="text-center" style="margin-bottom:3rem;">${c('howit_title')}</h2>
-          <div class="grid grid-4 text-center">
-            ${[1,2,3,4].map(i => `
-              <div>
-                <div class="step-circle">${i}</div>
-                <h3>${c('step'+i+'_title')}</h3>
-                <p style="font-size:0.9rem;color:var(--gray-600);margin-top:0.25rem;">${c('step'+i+'_desc')}</p>
+      <section class="section">
+        <div class="container">
+          <div class="text-center" style="margin-bottom:3rem;">
+            <span class="eyebrow" data-reveal>Por qué es distinto</span>
+          </div>
+          <div class="grid grid-3">
+            ${features.map(f => `
+              <div class="card feature" data-reveal>
+                <div class="feature-num">${f.n}</div>
+                <div class="kicker">${f.k}</div>
+                <h3>${f.t}</h3>
+                <p>${f.d}</p>
               </div>
             `).join('')}
           </div>
         </div>
       </section>
 
-      <section class="section">
-        <div class="container-sm text-center">
-          <h2 style="margin-bottom:0.75rem;">${c('cta2_title')}</h2>
-          <p style="color:var(--gray-600);margin-bottom:2rem;">${c('cta2_text')}</p>
-          <button class="btn btn-primary btn-lg" onclick="App.navigate('register')">Comenzar Ahora</button>
+      <section class="section section-white journey">
+        <div class="container-md">
+          <div class="text-center" style="margin-bottom:3rem;">
+            <span class="eyebrow" data-reveal>El viaje de una carta</span>
+            <h2 data-reveal style="margin-top:1rem;">${c('howit_title')}</h2>
+          </div>
+          <div class="journey-track" id="journey-track">
+            <div class="journey-line" id="journey-line"></div>
+            <div class="journey-envelope" id="journey-envelope">✉️</div>
+            ${[1,2,3,4].map(i => `
+              <div class="journey-step" data-reveal>
+                <div class="journey-bead">${i}</div>
+                <div>
+                  <h3>${c('step'+i+'_title')}</h3>
+                  <p>${c('step'+i+'_desc')}</p>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </section>
+
+      <hr class="rule-dashed">
+
+      <section class="section closer">
+        <div class="container-sm">
+          <div class="postmark" data-reveal style="margin:0 auto 2rem;">
+            <span class="pm-top">CARTAS · DESCONOCIDOS</span>
+            <span class="pm-date">${pmDate}</span>
+            <span class="pm-bot">CORREO A MANO</span>
+          </div>
+          <h2 data-reveal>${c('cta2_title')}</h2>
+          <p data-reveal>${c('cta2_text')}</p>
+          <button class="btn btn-primary btn-lg" data-reveal onclick="App.navigate('register')">${c('cta_button')}</button>
         </div>
       </section>
 
       <footer class="footer">
         <div class="container flex justify-between items-center" style="flex-wrap:wrap;gap:1rem;">
-          <p>${c('footer_text')}</p>
-          <div class="flex gap-6">
-            <button onclick="App.navigate('status')">Consultar Estado</button>
-            <button onclick="App.navigate('privacy')">Política de Privacidad</button>
+          <div class="brand" style="font-size:0.95rem;" onclick="App.navigate('home')">${brandMark}<span>${c('footer_text')}</span></div>
+          <div class="flex gap-6" style="flex-wrap:wrap;">
+            <button onclick="App.navigate('status')">Consultar estado</button>
+            <button onclick="App.navigate('privacy')">Privacidad</button>
             <button onclick="App.navigate('admin')">Administrador</button>
           </div>
         </div>
       </footer>
     </div>`;
+  }
+
+  // ── Motion (GSAP) — mejora progresiva ──────────────
+  function killMotion() {
+    try {
+      if (window.ScrollTrigger) window.ScrollTrigger.getAll().forEach(t => t.kill());
+      if (window._homeTweens) { window._homeTweens.forEach(t => t.kill && t.kill()); window._homeTweens = []; }
+    } catch (e) {}
+    document.body.classList.remove('motion');
+  }
+
+  function initHomeMotion() {
+    killMotion();
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const gsap = window.gsap;
+    if (!gsap || reduce) return; // sin GSAP o con reduce-motion: todo queda visible
+    gsap.registerPlugin(window.ScrollTrigger, window.MotionPathPlugin);
+    document.body.classList.add('motion');
+    window._homeTweens = [];
+    const ST = window.ScrollTrigger;
+
+    // Reveal general
+    gsap.set('[data-reveal]', { opacity: 0, y: 18 });
+    ST.batch('[data-reveal]', {
+      start: 'top 88%',
+      onEnter: b => window._homeTweens.push(gsap.to(b, { opacity: 1, y: 0, duration: .7, stagger: .09, ease: 'power2.out', overwrite: true })),
+    });
+
+    // Hero: dibujar el arco + el sello que lo recorre
+    const arc = document.getElementById('hero-arc');
+    if (arc) {
+      const len = arc.getTotalLength();
+      gsap.set(arc, { strokeDasharray: len, strokeDashoffset: len });
+      window._homeTweens.push(gsap.to(arc, { strokeDashoffset: 0, duration: 1.9, ease: 'power1.inOut', delay: .25 }));
+      const stamp = document.getElementById('hero-stamp');
+      if (stamp) window._homeTweens.push(gsap.to(stamp, {
+        duration: 1.9, delay: .25, ease: 'power1.inOut',
+        motionPath: { path: arc, align: arc, alignOrigin: [.5, .5] },
+      }));
+    }
+
+    // El viaje: construir el hilo vertical medido y dibujarlo con el scroll
+    const track = document.getElementById('journey-track');
+    const lineWrap = document.getElementById('journey-line');
+    const env = document.getElementById('journey-envelope');
+    if (track && lineWrap) {
+      const H = track.offsetHeight;
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', `0 0 56 ${H}`);
+      svg.setAttribute('width', '56'); svg.setAttribute('height', String(H));
+      svg.style.overflow = 'visible';
+      const d = `M28 8 C 44 ${H*0.22} 12 ${H*0.4} 28 ${H*0.55} S 44 ${H*0.8} 28 ${H-8}`;
+      const path = document.createElementNS(svgNS, 'path');
+      path.setAttribute('d', d); path.setAttribute('class', 'jpath');
+      svg.appendChild(path); lineWrap.appendChild(svg);
+
+      const jlen = path.getTotalLength();
+      gsap.set(path, { strokeDasharray: jlen, strokeDashoffset: jlen });
+      window._homeTweens.push(gsap.to(path, {
+        strokeDashoffset: 0, ease: 'none',
+        scrollTrigger: { trigger: track, start: 'top 72%', end: 'bottom 65%', scrub: 0.6 },
+      }));
+
+      // Sobre que baja por el hilo mientras se dibuja
+      if (env) {
+        gsap.set(env, { y: 0 });
+        window._homeTweens.push(gsap.to(env, {
+          y: H - 40, ease: 'none',
+          scrollTrigger: { trigger: track, start: 'top 72%', end: 'bottom 65%', scrub: 0.6 },
+        }));
+      }
+    }
+
+    ST.refresh();
   }
 
   // ── Register View ──────────────────────────────────
@@ -408,10 +525,6 @@ const App = (() => {
           <label class="form-label">País *</label>
           <input class="form-input" id="reg-country">
         </div>
-        ${c('hospice_enabled') === 'true' ? `
-        <div class="checkbox-row"><input type="checkbox" id="reg-hospice" onchange="document.getElementById('hospice-field').classList.toggle('hidden',!this.checked)"><label for="reg-hospice">Esta es una dirección de hospicio/destinatario</label></div>
-        <div id="hospice-field" class="hidden form-group"><label class="form-label">Nombre del Hospicio</label><input class="form-input" id="reg-hospice-name" placeholder="Hogar de Cuidado Sunshine"></div>
-      ` : '<input type="hidden" id="reg-hospice"><input type="hidden" id="reg-hospice-name">'}
         <div class="checkbox-row" style="margin-top:0.5rem;"><input type="checkbox" id="reg-terms"><label for="reg-terms" style="line-height:1.5;">Acepto la política de privacidad y entiendo que mi dirección solo será compartida con mi escritor asignado.</label></div>
         <button class="btn btn-primary btn-block btn-lg" style="margin-top:0.5rem;" onclick="App.submitRegistration()" id="reg-submit-btn">Completar Registro</button>
       </div>
@@ -426,8 +539,6 @@ const App = (() => {
     const postal = document.getElementById('reg-postal')?.value?.trim();
     const country = document.getElementById('reg-country')?.value?.trim();
     const terms = document.getElementById('reg-terms')?.checked;
-    const isHospice = document.getElementById('reg-hospice')?.checked;
-    const hospiceName = document.getElementById('reg-hospice-name')?.value?.trim();
 
     if (!terms) { showRegAlert('Por favor acepta los términos y la política de privacidad'); return; }
     if (!email || !name || !address || !city || !postal || !country) { showRegAlert('Todos los campos marcados son obligatorios'); return; }
@@ -439,7 +550,7 @@ const App = (() => {
     try {
       await api('/api/register', {
         method: 'POST',
-        body: JSON.stringify({ pseudonym: regPseudonym, email, name, address, city, postal_code: postal, country, is_hospice: isHospice, hospice_name: hospiceName }),
+        body: JSON.stringify({ pseudonym: regPseudonym, email, name, address, city, postal_code: postal, country }),
       });
       // Show success
       document.getElementById('reg-step-details').classList.add('hidden');
@@ -493,9 +604,6 @@ const App = (() => {
 
       if (data.matched && data.match) {
         const m = data.match;
-        const hospiceNote = m.receiver_is_hospice && m.receiver_hospice_name
-          ? `<div class="alert alert-success" style="margin-top:1rem;">${ic('heart','16')} <span>Tu destinatario es un residente de hospicio en: <strong>${esc(m.receiver_hospice_name)}</strong>. Una carta amable significará mucho.</span></div>` : '';
-
         resultEl.innerHTML = `
           <div class="fade-in">
             <div class="text-center" style="margin-bottom:1.5rem;">
@@ -514,7 +622,6 @@ const App = (() => {
                 </div>
               </div>
             </div>
-            ${hospiceNote}
             <div class="card" style="background:var(--amber-100);box-shadow:none;margin-bottom:1.5rem;">
               <div class="card-body" style="font-size:0.85rem;color:var(--gray-700);">
                 <strong>Recuerda:</strong> No incluyas tu nombre real ni dirección de remitente. Firma con tu seudónimo: <strong class="font-mono">${esc(data.pseudonym)}</strong>
@@ -614,10 +721,6 @@ const App = (() => {
           <div><p class="stat-label">Emparejados</p><p class="stat-value" style="color:var(--green-600);">${s.matched}</p></div>
           <div style="color:var(--green-400);">${ic('check',32)}</div>
         </div></div>
-        <div class="card stat-card"><div class="card-body flex justify-between items-center">
-          <div><p class="stat-label">Hospicio</p><p class="stat-value" style="color:var(--pink-600);">${s.hospice}</p></div>
-          <div class="icon-circle" style="background:var(--pink-100);color:var(--pink-600);width:2rem;height:2rem;font-size:0.8rem;">♥</div>
-        </div></div>
       </div>
 
       <div class="tabs" style="margin-bottom:1.5rem;">
@@ -652,14 +755,13 @@ const App = (() => {
     return `<div class="card"><div class="card-body">
       <h3 style="margin-bottom:1rem;">${p.length} Participantes</h3>
       <div class="table-wrap"><table>
-        <thead><tr><th>Seudónimo</th><th>Email</th><th>Nombre</th><th>Ciudad</th><th>Estado</th><th>Tipo</th><th></th></tr></thead>
+        <thead><tr><th>Seudónimo</th><th>Email</th><th>Nombre</th><th>Ciudad</th><th>Estado</th><th></th></tr></thead>
         <tbody>${p.map(r => `<tr>
           <td class="font-mono">${esc(r.pseudonym)}</td>
           <td>${esc(r.email)}</td>
           <td>${esc(r.name)}</td>
           <td>${esc(r.city)}</td>
           <td>${r.matched ? '<span class="badge badge-green">Emparejado</span>' : '<span class="badge badge-amber">Esperando</span>'}</td>
-          <td>${r.is_hospice ? '<span class="badge badge-pink">Hospicio</span>' : '-'}</td>
           <td><button class="btn btn-ghost btn-sm" style="color:var(--red-600);" onclick="App.deleteParticipant('${r.id}')">${ic('trash')}</button></td>
         </tr>`).join('')}</tbody>
       </table></div>
@@ -742,7 +844,7 @@ const App = (() => {
           ${g.keys.map(k => {
             const isLong = k.includes('text') || k.includes('subtitle') || k.includes('story') || k === 'email_body';
             const rows = k === 'email_body' ? 12 : k.includes('story') ? 6 : 3;
-            const hint = k === 'email_body' ? '<span class="form-hint" style="margin-top:0.25rem;">Variables: {{sender_pseudonym}}, {{receiver_pseudonym}}, {{receiver_address}}, {{receiver_city}}, {{receiver_postal_code}}, {{receiver_country}}, {{hospice_note}}, {{site_url}}</span>' : '';
+            const hint = k === 'email_body' ? '<span class="form-hint" style="margin-top:0.25rem;">Variables: {{sender_pseudonym}}, {{receiver_pseudonym}}, {{receiver_address}}, {{receiver_city}}, {{receiver_postal_code}}, {{receiver_country}}, {{site_url}}</span>' : '';
             return `<div class="form-group">
               <label class="form-label">${k.replace(/_/g,' ')}</label>
               ${isLong
@@ -791,7 +893,6 @@ const App = (() => {
   }
 
   function renderTabSettings() {
-    const hospiceOn = c('hospice_enabled') === 'true';
     return `
     <div class="card" style="margin-bottom:1.5rem;"><div class="card-body-lg">
       <h3 style="margin-bottom:0.5rem;">Configuración de Email (SMTP)</h3>
@@ -800,23 +901,6 @@ const App = (() => {
         <p style="color:var(--gray-400);font-size:0.9rem;">Cargando estado SMTP...</p>
       </div>
       <div id="smtp-test-result"></div>
-    </div></div>
-    <div class="card" style="margin-bottom:1.5rem;"><div class="card-body-lg">
-      <h3 style="margin-bottom:0.5rem;">Opciones del Sitio</h3>
-      <p style="color:var(--gray-500);font-size:0.9rem;margin-bottom:1.5rem;">Activa o desactiva funcionalidades del sitio público.</p>
-      <div id="settings-alert"></div>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem;background:${hospiceOn ? 'var(--pink-50)' : 'var(--gray-50)'};border-radius:0.5rem;border:1px solid ${hospiceOn ? 'var(--pink-100)' : 'var(--gray-200)'};">
-        <div style="flex:1;">
-          <div class="flex items-center gap-2" style="margin-bottom:0.25rem;">
-            ${ic('heart','16')}
-            <strong style="font-size:0.95rem;">Programa de Hospicio</strong>
-          </div>
-          <p style="font-size:0.85rem;color:var(--gray-500);">Permite que los participantes se registren como destinatarios de hospicio. Si se desactiva, la opción no aparece en el formulario de registro ni en la página principal.</p>
-        </div>
-        <button class="btn ${hospiceOn ? 'btn-primary' : 'btn-outline'} btn-sm" style="margin-left:1rem;min-width:100px;" onclick="App.toggleHospice()">
-          ${hospiceOn ? '✓ Activado' : 'Desactivado'}
-        </button>
-      </div>
     </div></div>
     <div class="card"><div class="card-body-lg">
       <h3 style="color:var(--red-600);margin-bottom:0.5rem;">Zona de Peligro</h3>
@@ -1227,19 +1311,6 @@ SMTP_FROM="Cartas a Desconocidos &lt;tu-correo@gmail.com&gt;"</pre>
     }
   }
 
-  async function toggleHospice() {
-    const current = c('hospice_enabled') === 'true';
-    const newVal = current ? 'false' : 'true';
-    try {
-      await api('/api/admin/config', { method: 'PUT', body: JSON.stringify({ hospice_enabled: newVal }) });
-      config.hospice_enabled = newVal;
-      document.getElementById('tab-settings').innerHTML = renderTabSettings();
-      const alertEl = document.getElementById('settings-alert');
-      if (alertEl) alertEl.innerHTML = `<div class="alert alert-success">${ic('check','16')} <span>Programa de hospicio ${newVal === 'true' ? 'activado' : 'desactivado'}</span></div>`;
-      setTimeout(() => { const a = document.getElementById('settings-alert'); if(a) a.innerHTML = ''; }, 3000);
-    } catch(e) { alert(e.message); }
-  }
-
   function exportCSV() {
     window.location.href = '/api/admin/export-csv';
   }
@@ -1265,9 +1336,10 @@ SMTP_FROM="Cartas a Desconocidos &lt;tu-correo@gmail.com&gt;"</pre>
 
   // ── Render ─────────────────────────────────────────
   function render() {
+    killMotion();
     const root = document.getElementById('app');
     switch(currentView) {
-      case 'home': root.innerHTML = renderHome(); break;
+      case 'home': root.innerHTML = renderHome(); requestAnimationFrame(initHomeMotion); break;
       case 'register': root.innerHTML = renderRegister(); initRegister(); break;
       case 'about': root.innerHTML = renderAbout(); break;
       case 'privacy': root.innerHTML = renderPrivacy(); break;
@@ -1287,7 +1359,7 @@ SMTP_FROM="Cartas a Desconocidos &lt;tu-correo@gmail.com&gt;"</pre>
     init, navigate, toggleCustomPseudo, newPseudo, submitPseudo, submitRegistration,
     checkStatus, adminLogin, loadAdminDashboard, switchTab, generateMatches, saveMatches,
     sendEmails, deleteParticipant, showClearConfirm, clearAll, saveConfig, previewImage,
-    uploadImage, deleteImage, adminExport, adminLogout, toggleHospice, exportCSV,
+    uploadImage, deleteImage, adminExport, adminLogout, exportCSV,
     loadSmtpStatus, testSmtp, previewEmail, previewFirstEmail, sendOneEmail, sendAllEmails,
   };
 })();
