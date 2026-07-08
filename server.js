@@ -7,20 +7,27 @@ const crypto = require('crypto');
 const Database = require('better-sqlite3');
 
 
+const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ── Rutas de datos persistentes ─────────────────────────
+// Configurables por entorno para apuntar a un volumen persistente
+// (p. ej. en Railway: DATA_DIR=/data). Por defecto, junto al código.
+const dataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
+const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
+for (const dir of [dataDir, uploadsDir]) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
 
 // ── Middleware ──────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(uploadsDir));
 
 // ── Database ───────────────────────────────────────────
-const dataDir = path.join(__dirname, 'data');
-if (!require('fs').existsSync(dataDir)) require('fs').mkdirSync(dataDir, { recursive: true });
-
 const db = new Database(path.join(dataDir, 'cartas.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
@@ -190,7 +197,7 @@ function requireAdmin(req, res, next) {
 
 // ── Multer for Image Upload ────────────────────────────
 const storage = multer.diskStorage({
-  destination: path.join(__dirname, 'uploads'),
+  destination: uploadsDir,
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
     cb(null, Date.now() + '-' + Math.random().toString(36).slice(2, 8) + ext);
@@ -625,8 +632,7 @@ app.delete('/api/admin/images/:id', requireAdmin, (req, res) => {
   try {
     const img = db.prepare('SELECT filename FROM site_images WHERE id = ?').get(req.params.id);
     if (img) {
-      const fs = require('fs');
-      const filepath = path.join(__dirname, 'uploads', img.filename);
+      const filepath = path.join(uploadsDir, img.filename);
       if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
     }
     db.prepare('DELETE FROM site_images WHERE id = ?').run(req.params.id);
