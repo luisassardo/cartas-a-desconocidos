@@ -753,19 +753,48 @@ const App = (() => {
     const { participants: p } = adminData;
     if (!p.length) return '<div class="card"><div class="card-body text-center" style="color:var(--gray-500);padding:2rem;">No hay participantes registrados aún.</div></div>';
     return `<div class="card"><div class="card-body">
-      <h3 style="margin-bottom:1rem;">${p.length} Participantes</h3>
+      <div class="flex justify-between items-center" style="margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+        <h3>${p.length} Participantes</h3>
+        ${(() => { const n = p.filter(r => addrIssues(r).length).length; return n ? `<span class="badge badge-amber" title="Direcciones posiblemente incompletas o falsas">⚠ ${n} por revisar</span>` : ''; })()}
+      </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Seudónimo</th><th>Email</th><th>Nombre</th><th>Ciudad</th><th>Estado</th><th></th></tr></thead>
-        <tbody>${p.map(r => `<tr>
+        <thead><tr><th>Seudónimo</th><th>Nombre</th><th>Dirección</th><th>Email</th><th>Estado</th><th></th></tr></thead>
+        <tbody>${p.map(r => {
+          const issues = addrIssues(r);
+          const flag = issues.length ? ` <span class="badge badge-amber" title="${esc(issues.join(' · '))}" style="cursor:help;">⚠ revisar</span>` : '';
+          const line2 = [r.city, r.postal_code].filter(Boolean).map(esc).join(', ');
+          return `<tr${issues.length ? ' style="background:var(--amber-100);"' : ''}>
           <td class="font-mono">${esc(r.pseudonym)}</td>
-          <td>${esc(r.email)}</td>
           <td>${esc(r.name)}</td>
-          <td>${esc(r.city)}</td>
+          <td style="min-width:220px;">
+            <div>${esc(r.address) || '<span style="color:var(--red-600);">— sin dirección —</span>'}${flag}</div>
+            <div style="font-size:0.8rem;color:var(--gray-500);">${line2}${line2 && r.country ? ' · ' : ''}${esc(r.country)}</div>
+          </td>
+          <td style="font-size:0.85rem;">${esc(r.email)}</td>
           <td>${r.matched ? '<span class="badge badge-green">Emparejado</span>' : '<span class="badge badge-amber">Esperando</span>'}</td>
-          <td><button class="btn btn-ghost btn-sm" style="color:var(--red-600);" onclick="App.deleteParticipant('${r.id}')">${ic('trash')}</button></td>
-        </tr>`).join('')}</tbody>
+          <td><button class="btn btn-ghost btn-sm" style="color:var(--red-600);" onclick="App.deleteParticipant('${r.id}')" title="Eliminar participante">${ic('trash')}</button></td>
+        </tr>`; }).join('')}</tbody>
       </table></div>
     </div></div>`;
+  }
+
+  // Heurística para marcar direcciones probablemente incompletas o falsas.
+  function addrIssues(r) {
+    const a = (r.address || '').trim();
+    const c = (r.city || '').trim();
+    const pc = (r.postal_code || '').trim();
+    const co = (r.country || '').trim();
+    const issues = [];
+    if (!a) issues.push('sin dirección');
+    else {
+      if (a.length < 6) issues.push('dirección muy corta');
+      if (!/\d/.test(a)) issues.push('sin número');
+      if (c && a.toLowerCase() === c.toLowerCase()) issues.push('dirección = ciudad');
+    }
+    if (!c) issues.push('sin ciudad');
+    if (!pc) issues.push('sin código postal');
+    if (!co) issues.push('sin país');
+    return issues;
   }
 
   function renderTabMatching() {
