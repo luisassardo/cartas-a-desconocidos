@@ -909,6 +909,13 @@ const App = (() => {
       </div>
       <div id="smtp-test-result"></div>
     </div></div>
+    <div class="card" style="margin-bottom:1.5rem;"><div class="card-body-lg">
+      <h3 style="margin-bottom:0.5rem;">Importar / Restaurar</h3>
+      <p style="color:var(--gray-500);font-size:0.9rem;margin-bottom:1.25rem;">Sube un archivo de export (JSON) para restaurar participantes y emparejamientos. Se combinan con lo existente: los registros con el mismo ID se sobrescriben y no se borra nada que no esté en el archivo.</p>
+      <div id="import-alert"></div>
+      <input type="file" id="import-file" accept="application/json,.json" style="display:none;" onchange="App.doImport()">
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('import-file').click()">${ic('upload','16')} Seleccionar archivo de export…</button>
+    </div></div>
     <div class="card"><div class="card-body-lg">
       <h3 style="color:var(--red-600);margin-bottom:0.5rem;">Zona de Peligro</h3>
       <p style="color:var(--gray-500);font-size:0.9rem;margin-bottom:1.5rem;">Estas acciones no se pueden deshacer.</p>
@@ -946,6 +953,29 @@ const App = (() => {
     } catch(e) {
       document.getElementById('matching-alert').innerHTML = `<div class="alert alert-error">${ic('alertCircle')} <span>${e.message}</span></div>`;
     }
+  }
+
+  async function doImport() {
+    const input = document.getElementById('import-file');
+    const el = document.getElementById('import-alert');
+    const file = input?.files?.[0];
+    if (!file) return;
+    let data;
+    try { data = JSON.parse(await file.text()); }
+    catch { if (el) el.innerHTML = `<div class="alert alert-error">${ic('alertCircle')} <span>El archivo no es un JSON válido.</span></div>`; input.value=''; return; }
+    const pCount = (data.participants || []).length;
+    const mCount = (data.matches || []).length;
+    if (!pCount) { if (el) el.innerHTML = `<div class="alert alert-error">${ic('alertCircle')} <span>El archivo no contiene participantes.</span></div>`; input.value=''; return; }
+    if (!confirm(`¿Importar ${pCount} participantes y ${mCount} emparejamientos?\n\nSe combinan con lo existente (los IDs iguales se sobrescriben; no se borra nada más).`)) { input.value=''; return; }
+    if (el) el.innerHTML = '<p style="color:var(--gray-500);font-size:0.9rem;"><span class="spinner" style="border-color:var(--gray-300);border-top-color:var(--clay);"></span> Importando…</p>';
+    try {
+      const res = await api('/api/admin/import', { method: 'POST', body: JSON.stringify({ participants: data.participants, matches: data.matches || [] }) });
+      if (el) el.innerHTML = `<div class="alert alert-success">${ic('check','16')} <span>Importado: ${res.importedParticipants} participantes y ${res.importedMatches} emparejamientos. Total ahora: ${res.totalParticipants} participantes / ${res.totalMatches} emparejamientos.</span></div>`;
+      loadAdminDashboard();
+    } catch(e) {
+      if (el) el.innerHTML = `<div class="alert alert-error">${ic('alertCircle')} <span>${e.message}</span></div>`;
+    }
+    input.value = '';
   }
 
   async function resetMatches() {
@@ -1378,7 +1408,7 @@ SMTP_FROM="Cartas a Desconocidos &lt;tu-correo@gmail.com&gt;"</pre>
   // Public API
   return {
     init, navigate, toggleCustomPseudo, newPseudo, submitPseudo, submitRegistration,
-    checkStatus, adminLogin, loadAdminDashboard, switchTab, generateMatches, saveMatches, resetMatches,
+    checkStatus, adminLogin, loadAdminDashboard, switchTab, generateMatches, saveMatches, resetMatches, doImport,
     sendEmails, deleteParticipant, showClearConfirm, clearAll, saveConfig, previewImage,
     uploadImage, deleteImage, adminExport, adminLogout, exportCSV,
     loadSmtpStatus, testSmtp, previewEmail, previewFirstEmail, sendOneEmail, sendAllEmails,

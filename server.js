@@ -21,7 +21,7 @@ for (const dir of [dataDir, uploadsDir]) {
 }
 
 // ── Middleware ──────────────────────────────────────────
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -437,38 +437,54 @@ app.post('/api/admin/reset-matches', requireAdmin, (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Diagnóstico TEMPORAL (solo lectura) para localizar la DB en el volumen.
-app.get('/api/admin/_diag', requireAdmin, (req, res) => {
-  const candidates = [process.env.RAILWAY_VOLUME_MOUNT_PATH, dataDir, uploadsDir, '/app/uploads', '/app/data', '/data']
-    .filter(Boolean);
-  const seen = new Set();
-  const report = [];
-  for (const dir of candidates) {
-    if (seen.has(dir)) continue;
-    seen.add(dir);
-    const entry = { dir, exists: fs.existsSync(dir), files: [] };
-    if (entry.exists) {
-      try {
-        for (const name of fs.readdirSync(dir)) {
-          try {
-            const st = fs.statSync(path.join(dir, name));
-            const f = { name, size: st.size, isDir: st.isDirectory() };
-            if (!st.isDirectory() && /\.db$/i.test(name)) {
-              try {
-                const rdb = new Database(path.join(dir, name), { readonly: true, fileMustExist: true });
-                f.participants = rdb.prepare('SELECT COUNT(*) c FROM participants').get().c;
-                f.matches = rdb.prepare('SELECT COUNT(*) c FROM matches').get().c;
-                rdb.close();
-              } catch (e) { f.dbError = e.message; }
-            }
-            entry.files.push(f);
-          } catch (e) { entry.files.push({ name, error: e.message }); }
+// Importar / restaurar desde un export JSON (combina; IDs iguales se sobrescriben).
+app.post('/api/admin/import', requireAdmin, (req, res) => {
+  try {
+    const participants = Array.isArray(req.body.participants) ? req.body.participants : null;
+    const matches = Array.isArray(req.body.matches) ? req.body.matches : [];
+    if (!participants) return res.status(400).json({ error: 'JSON inválido: falta el arreglo "participants"' });
+
+    const pStmt = db.prepare(`INSERT OR REPLACE INTO participants
+      (id, pseudonym, email, name_encrypted, address_encrypted, city_encrypted, postal_code_encrypted, country_encrypted, is_hospice, hospice_name, matched, matched_to, created_at, updated_at)
+      VALUES (@id,@pseudonym,@email,@name_encrypted,@address_encrypted,@city_encrypted,@postal_code_encrypted,@country_encrypted,@is_hospice,@hospice_name,@matched,@matched_to,@created_at,@updated_at)`);
+    const mStmt = db.prepare(`INSERT OR REPLACE INTO matches
+      (id, sender_id, receiver_id, sender_pseudonym, receiver_pseudonym, emails_sent, created_at)
+      VALUES (@id,@sender_id,@receiver_id,@sender_pseudonym,@receiver_pseudonym,@emails_sent,@created_at)`);
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    const tx = db.transaction(() => {
+      for (const p of participants) {
+        if (!p.id || !p.pseudonym || !p.email || !p.name_encrypted || !p.address_encrypted) {
+          throw new Error(`Participante con datos incompletos: ${p.pseudonym || p.id || '(sin id)'}`);
         }
-      } catch (e) { entry.error = e.message; }
-    }
-    report.push(entry);
-  }
-  res.json({ dataDir, uploadsDir, volumeMount: process.env.RAILWAY_VOLUME_MOUNT_PATH || null, report });
+        pStmt.run({
+          id: p.id, pseudonym: p.pseudonym, email: p.email,
+          name_encrypted: p.name_encrypted, address_encrypted: p.address_encrypted,
+          city_encrypted: p.city_encrypted, postal_code_encrypted: p.postal_code_encrypted,
+          country_encrypted: p.country_encrypted,
+          is_hospice: p.is_hospice ? 1 : 0, hospice_name: p.hospice_name ?? null,
+          matched: p.matched ? 1 : 0, matched_to: p.matched_to ?? null,
+          created_at: p.created_at || now, updated_at: p.updated_at || now,
+        });
+      }
+      for (const m of matches) {
+        mStmt.run({
+          id: m.id, sender_id: m.sender_id, receiver_id: m.receiver_id,
+          sender_pseudonym: m.sender_pseudonym, receiver_pseudonym: m.receiver_pseudonym,
+          emails_sent: m.emails_sent ? 1 : 0, created_at: m.created_at || now,
+        });
+      }
+    });
+    tx();
+
+    res.json({
+      success: true,
+      importedParticipants: participants.length,
+      importedMatches: matches.length,
+      totalParticipants: db.prepare('SELECT COUNT(*) c FROM participants').get().c,
+      totalMatches: db.prepare('SELECT COUNT(*) c FROM matches').get().c,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── Email Infrastructure ──────────────────────────────
