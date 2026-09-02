@@ -424,6 +424,19 @@ app.post('/api/admin/save-matches', requireAdmin, (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Reset matches (deshacer emparejamientos, conservando participantes)
+app.post('/api/admin/reset-matches', requireAdmin, (req, res) => {
+  try {
+    const sent = db.prepare('SELECT COUNT(*) as c FROM matches WHERE emails_sent = 1').get().c;
+    const transaction = db.transaction(() => {
+      db.prepare('DELETE FROM matches').run();
+      db.prepare('UPDATE participants SET matched = 0, matched_to = NULL').run();
+    });
+    transaction();
+    res.json({ success: true, emailsAlreadySent: sent });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Email Infrastructure ──────────────────────────────
 async function sendEmailViaBrevo(to, subject, body, from) {
   const apiKey = process.env.BREVO_API_KEY;

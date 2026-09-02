@@ -769,6 +769,7 @@ const App = (() => {
   }
 
   function renderTabMatching() {
+    const totalMatches = adminData.stats.totalMatches || 0;
     return `<div class="card"><div class="card-body">
       <h3 style="margin-bottom:0.5rem;">Generar Emparejamientos</h3>
       <p style="color:var(--gray-500);font-size:0.9rem;margin-bottom:1.5rem;">${adminData.stats.unmatched} participantes sin emparejar disponibles</p>
@@ -778,6 +779,12 @@ const App = (() => {
         <button class="btn btn-outline hidden" id="save-matches-btn" onclick="App.saveMatches()">${ic('check','16')} Guardar</button>
       </div>
       <div id="match-preview"></div>
+      ${totalMatches > 0 ? `
+      <div style="margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--line);">
+        <h3 style="margin-bottom:0.35rem;">Deshacer emparejamientos</h3>
+        <p style="color:var(--gray-500);font-size:0.9rem;margin-bottom:1rem;">Elimina las ${totalMatches} parejas actuales y deja a todos como "sin emparejar" — <strong>no borra participantes ni sus direcciones</strong>. Úsalo para revisar/quitar registros y volver a generar. (No deshace correos ya enviados.)</p>
+        <button class="btn btn-outline btn-sm" onclick="App.resetMatches()">${ic('refresh','16')} Deshacer todos los emparejamientos</button>
+      </div>` : ''}
     </div></div>`;
   }
 
@@ -939,6 +946,20 @@ const App = (() => {
     } catch(e) {
       document.getElementById('matching-alert').innerHTML = `<div class="alert alert-error">${ic('alertCircle')} <span>${e.message}</span></div>`;
     }
+  }
+
+  async function resetMatches() {
+    const n = adminData.stats.totalMatches || 0;
+    if (!confirm(`¿Deshacer los ${n} emparejamientos actuales?\n\nLos participantes y sus direcciones NO se borran; solo quedan como "sin emparejar" para que puedas revisarlos y volver a generar.`)) return;
+    try {
+      const res = await api('/api/admin/reset-matches', { method: 'POST' });
+      loadAdminDashboard();
+      const alertEl = document.getElementById('matching-alert');
+      if (alertEl) {
+        const warn = res.emailsAlreadySent ? ` (ojo: ${res.emailsAlreadySent} ya tenían correo enviado)` : '';
+        alertEl.innerHTML = `<div class="alert alert-success">${ic('check','16')} <span>Emparejamientos deshechos. Todos quedaron sin emparejar${warn}.</span></div>`;
+      }
+    } catch(e) { alert(e.message); }
   }
 
   async function sendEmails() {
@@ -1357,7 +1378,7 @@ SMTP_FROM="Cartas a Desconocidos &lt;tu-correo@gmail.com&gt;"</pre>
   // Public API
   return {
     init, navigate, toggleCustomPseudo, newPseudo, submitPseudo, submitRegistration,
-    checkStatus, adminLogin, loadAdminDashboard, switchTab, generateMatches, saveMatches,
+    checkStatus, adminLogin, loadAdminDashboard, switchTab, generateMatches, saveMatches, resetMatches,
     sendEmails, deleteParticipant, showClearConfirm, clearAll, saveConfig, previewImage,
     uploadImage, deleteImage, adminExport, adminLogout, exportCSV,
     loadSmtpStatus, testSmtp, previewEmail, previewFirstEmail, sendOneEmail, sendAllEmails,
