@@ -437,6 +437,40 @@ app.post('/api/admin/reset-matches', requireAdmin, (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Diagnóstico TEMPORAL (solo lectura) para localizar la DB en el volumen.
+app.get('/api/admin/_diag', requireAdmin, (req, res) => {
+  const candidates = [process.env.RAILWAY_VOLUME_MOUNT_PATH, dataDir, uploadsDir, '/app/uploads', '/app/data', '/data']
+    .filter(Boolean);
+  const seen = new Set();
+  const report = [];
+  for (const dir of candidates) {
+    if (seen.has(dir)) continue;
+    seen.add(dir);
+    const entry = { dir, exists: fs.existsSync(dir), files: [] };
+    if (entry.exists) {
+      try {
+        for (const name of fs.readdirSync(dir)) {
+          try {
+            const st = fs.statSync(path.join(dir, name));
+            const f = { name, size: st.size, isDir: st.isDirectory() };
+            if (!st.isDirectory() && /\.db$/i.test(name)) {
+              try {
+                const rdb = new Database(path.join(dir, name), { readonly: true, fileMustExist: true });
+                f.participants = rdb.prepare('SELECT COUNT(*) c FROM participants').get().c;
+                f.matches = rdb.prepare('SELECT COUNT(*) c FROM matches').get().c;
+                rdb.close();
+              } catch (e) { f.dbError = e.message; }
+            }
+            entry.files.push(f);
+          } catch (e) { entry.files.push({ name, error: e.message }); }
+        }
+      } catch (e) { entry.error = e.message; }
+    }
+    report.push(entry);
+  }
+  res.json({ dataDir, uploadsDir, volumeMount: process.env.RAILWAY_VOLUME_MOUNT_PATH || null, report });
+});
+
 // ── Email Infrastructure ──────────────────────────────
 async function sendEmailViaBrevo(to, subject, body, from) {
   const apiKey = process.env.BREVO_API_KEY;
