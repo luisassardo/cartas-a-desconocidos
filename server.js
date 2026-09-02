@@ -12,10 +12,13 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Rutas de datos persistentes ─────────────────────────
-// Configurables por entorno para apuntar a un volumen persistente
-// (p. ej. en Railway: DATA_DIR=/data). Por defecto, junto al código.
-const dataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
-const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
+// La DB y las subidas DEBEN vivir en el volumen persistente, no en el disco
+// efímero del contenedor. Orden: variable explícita > volumen de Railway
+// (RAILWAY_VOLUME_MOUNT_PATH) > carpeta local (solo dev). Este default hace
+// que en Railway se use el volumen automáticamente aunque no se fije DATA_DIR.
+const railwayVolume = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
+const dataDir = process.env.DATA_DIR || railwayVolume || path.join(__dirname, 'data');
+const uploadsDir = process.env.UPLOADS_DIR || railwayVolume || path.join(__dirname, 'uploads');
 for (const dir of [dataDir, uploadsDir]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
