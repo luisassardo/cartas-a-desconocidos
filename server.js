@@ -1,5 +1,7 @@
 require('dotenv').config();
 const express = require('express');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const multer = require('multer');
 const cookieParser = require('cookie-parser');
@@ -10,6 +12,11 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Detrás de Cloudflare + Railway: confiar en el proxy para obtener IP y
+// protocolo reales (necesario para el rate limiting por IP y para HSTS).
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
 
 // ── Rutas de datos persistentes ─────────────────────────
 // La DB y las subidas DEBEN vivir en el volumen persistente, no en el disco
@@ -22,6 +29,56 @@ const uploadsDir = process.env.UPLOADS_DIR || railwayVolume || path.join(__dirna
 for (const dir of [dataDir, uploadsDir]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
+
+// ── Seguridad: cabeceras HTTP (Helmet) ──────────────────
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      baseUri: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      formAction: ["'self'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      // 'unsafe-inline' es necesario por los manejadores onclick en index.html;
+      // puede retirarse cuando se migren a addEventListener.
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
+      connectSrc: ["'self'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  referrerPolicy: { policy: 'no-referrer' },
+  frameguard: { action: 'deny' },
+}));
+
+// Permissions-Policy (Helmet ya no la establece): restringe APIs del navegador.
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy',
+    'geolocation=(), microphone=(), camera=(), payment=(), usb=(), interest-cohort=()');
+  next();
+});
+
+// ── Seguridad: límite de peticiones (rate limiting) ─────
+// Tope general de la API por IP (los estáticos los sirve y cachea Cloudflare).
+app.use('/api', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
+// Tope estricto en registro, consulta de estado y login de administración.
+const strictLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes. Intenta de nuevo en unos minutos.' },
+});
+app.use(['/api/register', '/api/status', '/api/admin/login'], strictLimiter);
 
 // ── Middleware ──────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
