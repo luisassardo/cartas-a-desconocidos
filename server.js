@@ -136,6 +136,17 @@ db.exec(`
   );
 `);
 
+// Migración idempotente: columnas para "lotes" (archivar rondas pasadas).
+// Un participante/match archivado sale del tablero activo y pasa a su lote.
+function addColumnIfMissing(table, col, def) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+}
+addColumnIfMissing('participants', 'archived', 'INTEGER DEFAULT 0');
+addColumnIfMissing('participants', 'batch', 'TEXT');
+addColumnIfMissing('participants', 'archived_at', 'TEXT');
+addColumnIfMissing('matches', 'batch', 'TEXT');
+
 // Seed default site config
 const defaultConfig = {
   'hero_title': 'Intercambio Anónimo de Cartas',
@@ -395,7 +406,8 @@ app.get('/api/admin/check', requireAdmin, (req, res) => {
 
 // Get all participants (admin)
 app.get('/api/admin/participants', requireAdmin, (req, res) => {
-  const participants = db.prepare('SELECT * FROM participants ORDER BY created_at DESC').all();
+  // Solo el tablero activo (los archivados viven en sus lotes).
+  const participants = db.prepare('SELECT * FROM participants WHERE archived = 0 ORDER BY created_at DESC').all();
   // Decrypt for admin view
   const decrypted = participants.map(p => ({
     ...p,
@@ -419,24 +431,26 @@ app.delete('/api/admin/participants/:id', requireAdmin, (req, res) => {
 
 // Get stats
 app.get('/api/admin/stats', requireAdmin, (req, res) => {
-  const total = db.prepare('SELECT COUNT(*) as c FROM participants').get().c;
-  const unmatched = db.prepare('SELECT COUNT(*) as c FROM participants WHERE matched = 0').get().c;
-  const matched = db.prepare('SELECT COUNT(*) as c FROM participants WHERE matched = 1').get().c;
-  const totalMatches = db.prepare('SELECT COUNT(*) as c FROM matches').get().c;
-  const pendingEmails = db.prepare('SELECT COUNT(*) as c FROM matches WHERE emails_sent = 0').get().c;
-  res.json({ total, unmatched, matched, totalMatches, pendingEmails });
+  // Tablero activo (sin archivar).
+  const total = db.prepare('SELECT COUNT(*) as c FROM participants WHERE archived = 0').get().c;
+  const unmatched = db.prepare('SELECT COUNT(*) as c FROM participants WHERE matched = 0 AND archived = 0').get().c;
+  const matched = db.prepare('SELECT COUNT(*) as c FROM participants WHERE matched = 1 AND archived = 0').get().c;
+  const totalMatches = db.prepare('SELECT COUNT(*) as c FROM matches WHERE batch IS NULL').get().c;
+  const pendingEmails = db.prepare('SELECT COUNT(*) as c FROM matches WHERE emails_sent = 0 AND batch IS NULL').get().c;
+  const archivedBatches = db.prepare('SELECT COUNT(DISTINCT batch) as c FROM participants WHERE archived = 1').get().c;
+  res.json({ total, unmatched, matched, totalMatches, pendingEmails, archivedBatches });
 });
 
-// Get matches
+// Get matches (ronda activa: sin lote asignado)
 app.get('/api/admin/matches', requireAdmin, (req, res) => {
-  const matches = db.prepare('SELECT * FROM matches ORDER BY created_at DESC').all();
+  const matches = db.prepare('SELECT * FROM matches WHERE batch IS NULL ORDER BY created_at DESC').all();
   res.json(matches);
 });
 
 // Generate matches
 app.post('/api/admin/generate-matches', requireAdmin, (req, res) => {
   try {
-    const unmatched = db.prepare('SELECT * FROM participants WHERE matched = 0').all();
+    const unmatched = db.prepare('SELECT * FROM participants WHERE matched = 0 AND archived = 0').all();
     if (unmatched.length < 2) return res.status(400).json({ error: 'Se necesitan al menos 2 participantes sin emparejar' });
 
     // Fisher-Yates shuffle
@@ -487,14 +501,61 @@ app.post('/api/admin/save-matches', requireAdmin, (req, res) => {
 // Reset matches (deshacer emparejamientos, conservando participantes)
 app.post('/api/admin/reset-matches', requireAdmin, (req, res) => {
   try {
-    const sent = db.prepare('SELECT COUNT(*) as c FROM matches WHERE emails_sent = 1').get().c;
+    // Solo la ronda activa; nunca toca lotes ya archivados.
+    const sent = db.prepare('SELECT COUNT(*) as c FROM matches WHERE emails_sent = 1 AND batch IS NULL').get().c;
     const transaction = db.transaction(() => {
-      db.prepare('DELETE FROM matches').run();
-      db.prepare('UPDATE participants SET matched = 0, matched_to = NULL').run();
+      db.prepare('DELETE FROM matches WHERE batch IS NULL').run();
+      db.prepare('UPDATE participants SET matched = 0, matched_to = NULL WHERE archived = 0').run();
     });
     transaction();
     res.json({ success: true, emailsAlreadySent: sent });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Cerrar lote: archiva la ronda actual (los emparejados activos) en un lote
+// con fecha. Los no emparejados se quedan en el tablero para el próximo mes.
+app.post('/api/admin/close-batch', requireAdmin, (req, res) => {
+  try {
+    const matchedActive = db.prepare('SELECT COUNT(*) as c FROM participants WHERE matched = 1 AND archived = 0').get().c;
+    if (matchedActive < 1) return res.status(400).json({ error: 'No hay emparejamientos activos para archivar.' });
+
+    // Etiqueta del lote: la que mande el admin, o YYYY-MM; si ya existe, añade sufijo.
+    let label = (req.body && typeof req.body.label === 'string' && req.body.label.trim())
+      ? req.body.label.trim() : new Date().toISOString().slice(0, 7);
+    const exists = (l) => db.prepare('SELECT 1 FROM participants WHERE batch = ?').get(l);
+    if (exists(label)) { let n = 2; while (exists(`${label}-${n}`)) n++; label = `${label}-${n}`; }
+
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const tx = db.transaction(() => {
+      db.prepare(`UPDATE participants SET archived = 1, batch = ?, archived_at = ? WHERE matched = 1 AND archived = 0`).run(label, now);
+      db.prepare(`UPDATE matches SET batch = ? WHERE batch IS NULL`).run(label);
+    });
+    tx();
+    res.json({ success: true, batch: label, archived: matchedActive });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Lista de lotes archivados (resumen).
+app.get('/api/admin/batches', requireAdmin, (req, res) => {
+  const batches = db.prepare(`
+    SELECT batch,
+           COUNT(*) AS participants,
+           MIN(archived_at) AS archived_at
+    FROM participants WHERE archived = 1 AND batch IS NOT NULL
+    GROUP BY batch ORDER BY archived_at DESC`).all();
+  res.json(batches);
+});
+
+// Detalle de un lote (participantes descifrados + emparejamientos).
+app.get('/api/admin/batch/:label', requireAdmin, (req, res) => {
+  const label = req.params.label;
+  const participants = db.prepare('SELECT * FROM participants WHERE batch = ? AND archived = 1 ORDER BY created_at DESC').all(label).map(p => ({
+    ...p,
+    name: decrypt(p.name_encrypted), address: decrypt(p.address_encrypted),
+    city: decrypt(p.city_encrypted), postal_code: decrypt(p.postal_code_encrypted), country: decrypt(p.country_encrypted),
+  }));
+  const matches = db.prepare('SELECT * FROM matches WHERE batch = ? ORDER BY created_at DESC').all(label);
+  res.json({ batch: label, participants, matches });
 });
 
 // Importar / restaurar desde un export JSON (combina; IDs iguales se sobrescriben).
@@ -505,11 +566,11 @@ app.post('/api/admin/import', requireAdmin, (req, res) => {
     if (!participants) return res.status(400).json({ error: 'JSON inválido: falta el arreglo "participants"' });
 
     const pStmt = db.prepare(`INSERT OR REPLACE INTO participants
-      (id, pseudonym, email, name_encrypted, address_encrypted, city_encrypted, postal_code_encrypted, country_encrypted, is_hospice, hospice_name, matched, matched_to, created_at, updated_at)
-      VALUES (@id,@pseudonym,@email,@name_encrypted,@address_encrypted,@city_encrypted,@postal_code_encrypted,@country_encrypted,@is_hospice,@hospice_name,@matched,@matched_to,@created_at,@updated_at)`);
+      (id, pseudonym, email, name_encrypted, address_encrypted, city_encrypted, postal_code_encrypted, country_encrypted, is_hospice, hospice_name, matched, matched_to, created_at, updated_at, archived, batch, archived_at)
+      VALUES (@id,@pseudonym,@email,@name_encrypted,@address_encrypted,@city_encrypted,@postal_code_encrypted,@country_encrypted,@is_hospice,@hospice_name,@matched,@matched_to,@created_at,@updated_at,@archived,@batch,@archived_at)`);
     const mStmt = db.prepare(`INSERT OR REPLACE INTO matches
-      (id, sender_id, receiver_id, sender_pseudonym, receiver_pseudonym, emails_sent, created_at)
-      VALUES (@id,@sender_id,@receiver_id,@sender_pseudonym,@receiver_pseudonym,@emails_sent,@created_at)`);
+      (id, sender_id, receiver_id, sender_pseudonym, receiver_pseudonym, emails_sent, created_at, batch)
+      VALUES (@id,@sender_id,@receiver_id,@sender_pseudonym,@receiver_pseudonym,@emails_sent,@created_at,@batch)`);
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     const tx = db.transaction(() => {
@@ -525,13 +586,14 @@ app.post('/api/admin/import', requireAdmin, (req, res) => {
           is_hospice: p.is_hospice ? 1 : 0, hospice_name: p.hospice_name ?? null,
           matched: p.matched ? 1 : 0, matched_to: p.matched_to ?? null,
           created_at: p.created_at || now, updated_at: p.updated_at || now,
+          archived: p.archived ? 1 : 0, batch: p.batch ?? null, archived_at: p.archived_at ?? null,
         });
       }
       for (const m of matches) {
         mStmt.run({
           id: m.id, sender_id: m.sender_id, receiver_id: m.receiver_id,
           sender_pseudonym: m.sender_pseudonym, receiver_pseudonym: m.receiver_pseudonym,
-          emails_sent: m.emails_sent ? 1 : 0, created_at: m.created_at || now,
+          emails_sent: m.emails_sent ? 1 : 0, created_at: m.created_at || now, batch: m.batch ?? null,
         });
       }
     });

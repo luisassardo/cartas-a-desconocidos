@@ -682,10 +682,10 @@ const App = (() => {
     const dash = document.getElementById('admin-dashboard');
     dash.innerHTML = '<p style="text-align:center;padding:2rem;color:var(--gray-500);">Cargando...</p>';
     try {
-      const [stats, participants, matches, images] = await Promise.all([
-        api('/api/admin/stats'), api('/api/admin/participants'), api('/api/admin/matches'), api('/api/images'),
+      const [stats, participants, matches, images, batches] = await Promise.all([
+        api('/api/admin/stats'), api('/api/admin/participants'), api('/api/admin/matches'), api('/api/images'), api('/api/admin/batches'),
       ]);
-      adminData = { stats, participants, matches, pendingMatches: [], images };
+      adminData = { stats, participants, matches, pendingMatches: [], images, batches };
       renderAdminDashboard();
     } catch(e) {
       dash.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
@@ -721,12 +721,17 @@ const App = (() => {
           <div><p class="stat-label">Emparejados</p><p class="stat-value" style="color:var(--green-600);">${s.matched}</p></div>
           <div style="color:var(--green-400);">${ic('check',32)}</div>
         </div></div>
+        <div class="card stat-card"><div class="card-body flex justify-between items-center">
+          <div><p class="stat-label">Lotes archivados</p><p class="stat-value" style="color:var(--thread);">${s.archivedBatches || 0}</p></div>
+          <div style="color:var(--thread);">${ic('fileText',28)}</div>
+        </div></div>
       </div>
 
       <div class="tabs" style="margin-bottom:1.5rem;">
         <button class="tab-btn active" onclick="App.switchTab('participants',this)">Participantes</button>
         <button class="tab-btn" onclick="App.switchTab('matching',this)">Emparejamiento</button>
         <button class="tab-btn" onclick="App.switchTab('matches',this)">Emparejamientos</button>
+        <button class="tab-btn" onclick="App.switchTab('batches',this)">Lotes anteriores</button>
         <button class="tab-btn" onclick="App.switchTab('editor',this)">Editor de Textos</button>
         <button class="tab-btn" onclick="App.switchTab('images',this)">Imágenes</button>
         <button class="tab-btn" onclick="App.switchTab('settings',this)">Configuración</button>
@@ -735,6 +740,7 @@ const App = (() => {
       <div class="tab-panel active" id="tab-participants">${renderTabParticipants()}</div>
       <div class="tab-panel" id="tab-matching">${renderTabMatching()}</div>
       <div class="tab-panel" id="tab-matches">${renderTabMatches()}</div>
+      <div class="tab-panel" id="tab-batches">${renderTabBatches()}</div>
       <div class="tab-panel" id="tab-editor">${renderTabEditor()}</div>
       <div class="tab-panel" id="tab-images">${renderTabImages()}</div>
       <div class="tab-panel" id="tab-settings">${renderTabSettings()}</div>
@@ -857,8 +863,95 @@ const App = (() => {
           </td>
         </tr>`).join('')}</tbody>
       </table></div>` : '<p style="color:var(--gray-500);text-align:center;padding:1rem;">No hay emparejamientos aún.</p>'}
+      ${m.length ? `
+      <div style="margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--line);">
+        <h3 style="margin-bottom:0.35rem;">Cerrar lote</h3>
+        <p style="color:var(--gray-500);font-size:0.9rem;margin-bottom:1rem;">Cuando ya enviaste esta ronda, archívala: los <strong>${adminData.stats.matched}</strong> emparejados pasan a un lote con fecha y el tablero queda limpio para los nuevos registros. No borra a nadie, y los que aún no emparejaste se quedan.</p>
+        <div id="close-batch-box"><button class="btn btn-outline btn-sm" onclick="App.askCloseBatch()">${ic('fileText','16')} Cerrar lote y archivar</button></div>
+      </div>` : ''}
     </div></div>
     <div id="email-preview-modal" class="hidden"></div>`;
+  }
+
+  function askCloseBatch() {
+    const box = document.getElementById('close-batch-box');
+    if (!box) return;
+    const def = new Date().toISOString().slice(0, 7);
+    box.innerHTML = `<div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+      <label style="font-size:0.85rem;color:var(--ink-soft);">Nombre del lote:</label>
+      <input class="form-input" id="batch-label" value="${def}" style="max-width:150px;">
+      <button class="btn btn-primary btn-sm" onclick="App.doCloseBatch()">Archivar ronda</button>
+      <button class="btn btn-ghost btn-sm" onclick="App.loadAdminDashboard()">Cancelar</button>
+    </div><div id="close-batch-alert" style="margin-top:0.6rem;"></div>`;
+  }
+
+  async function doCloseBatch() {
+    const label = document.getElementById('batch-label')?.value?.trim();
+    const el = document.getElementById('close-batch-alert');
+    if (el) el.innerHTML = '<p style="color:var(--gray-500);font-size:0.9rem;"><span class="spinner" style="border-color:var(--gray-300);border-top-color:var(--clay);"></span> Archivando…</p>';
+    try {
+      await api('/api/admin/close-batch', { method: 'POST', body: JSON.stringify({ label }) });
+      loadAdminDashboard();
+    } catch(e) {
+      if (el) el.innerHTML = `<div class="alert alert-error">${ic('alertCircle')} <span>${e.message}</span></div>`;
+    }
+  }
+
+  function renderTabBatches() {
+    const b = adminData.batches || [];
+    if (!b.length) return '<div class="card"><div class="card-body text-center" style="color:var(--gray-500);padding:2rem;">Aún no has cerrado ningún lote.<br>Cuando archives una ronda (pestaña Emparejamientos → “Cerrar lote”), aparecerá aquí su historial.</div></div>';
+    return `<div class="card"><div class="card-body">
+      <h3 style="margin-bottom:1rem;">${b.length} lote${b.length > 1 ? 's' : ''} archivado${b.length > 1 ? 's' : ''}</h3>
+      <div class="plist">${b.map(x => `
+        <div class="pcard">
+          <div class="pcard-main">
+            <div class="pcard-head">
+              <span class="font-mono pcard-pseudo">${esc(x.batch)}</span>
+              <span class="badge badge-indigo">${x.participants} personas</span>
+            </div>
+            <div class="pcard-sub">Archivado ${x.archived_at ? new Date(x.archived_at.replace(' ', 'T')).toLocaleDateString('es') : ''}</div>
+          </div>
+          <div class="pcard-action" style="display:flex;gap:0.4rem;">
+            <button class="btn btn-ghost btn-sm" onclick="App.viewBatch('${esc(x.batch)}')">${ic('eye','14')} Ver</button>
+            <button class="btn btn-outline btn-sm" onclick="App.exportBatch('${esc(x.batch)}')">${ic('download','14')} Exportar</button>
+          </div>
+        </div>`).join('')}</div>
+      <div id="batch-detail" style="margin-top:1.25rem;"></div>
+    </div></div>`;
+  }
+
+  async function viewBatch(label) {
+    const el = document.getElementById('batch-detail');
+    if (el) el.innerHTML = '<p style="color:var(--gray-500);font-size:0.9rem;"><span class="spinner" style="border-color:var(--gray-300);border-top-color:var(--clay);"></span> Cargando…</p>';
+    try {
+      const data = await api('/api/admin/batch/' + encodeURIComponent(label));
+      const byId = {}; data.participants.forEach(p => byId[p.id] = p);
+      const rows = data.matches.map(mm => {
+        const r = byId[mm.receiver_id] || {};
+        const addr = [r.address, r.city, r.postal_code, r.country].filter(Boolean).map(esc).join(', ');
+        return `<div class="pcard"><div class="pcard-main">
+          <div class="pcard-head"><span class="font-mono">${esc(mm.sender_pseudonym)}</span> <span style="color:var(--ink-soft);">→</span> <span class="font-mono">${esc(mm.receiver_pseudonym)}</span></div>
+          <div class="pcard-sub">${addr || '—'}</div>
+        </div></div>`;
+      }).join('');
+      if (el) el.innerHTML = `<div style="border-top:1px solid var(--line);padding-top:1rem;">
+        <h4 style="margin-bottom:0.75rem;">Lote ${esc(label)} — ${data.participants.length} personas, ${data.matches.length} parejas</h4>
+        <div class="plist">${rows || '<p style="color:var(--gray-500);">Sin emparejamientos registrados.</p>'}</div>
+      </div>`;
+    } catch(e) {
+      if (el) el.innerHTML = `<div class="alert alert-error">${ic('alertCircle')} <span>${e.message}</span></div>`;
+    }
+  }
+
+  async function exportBatch(label) {
+    try {
+      const data = await api('/api/admin/batch/' + encodeURIComponent(label));
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `cartas-lote-${label}.json`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch(e) { /* noop */ }
   }
 
   function renderTabEditor() {
@@ -1459,6 +1552,7 @@ SMTP_FROM="Cartas a Desconocidos &lt;tu-correo@gmail.com&gt;"</pre>
     init, navigate, toggleCustomPseudo, newPseudo, submitPseudo, submitRegistration,
     checkStatus, adminLogin, loadAdminDashboard, switchTab, generateMatches, saveMatches, resetMatches, doImport,
     sendEmails, askDelete, doDelete, showClearConfirm, clearAll, saveConfig, previewImage,
+    askCloseBatch, doCloseBatch, viewBatch, exportBatch,
     uploadImage, deleteImage, adminExport, adminLogout, exportCSV,
     loadSmtpStatus, testSmtp, previewEmail, previewFirstEmail, sendOneEmail, sendAllEmails,
   };
