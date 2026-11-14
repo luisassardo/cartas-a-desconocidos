@@ -561,7 +561,7 @@ const App = (() => {
           <div class="icon-circle bg-green" style="margin:0 auto 1.5rem;width:4rem;height:4rem;">${ic('check',32)}</div>
           <h2>¡Registro Exitoso!</h2>
           <p style="color:var(--gray-600);margin:1rem 0;">Gracias por unirte al Intercambio Anónimo de Cartas. Recibirás un correo cuando se hagan las asignaciones.</p>
-          <p style="font-size:0.9rem;color:var(--gray-500);margin-bottom:1rem;">Tu seudónimo: <span class="font-mono" style="color:var(--indigo-600);font-weight:700;">${regPseudonym}</span></p>
+          <p style="font-size:0.9rem;color:var(--gray-500);margin-bottom:1rem;">Tu seudónimo: <span class="font-mono" style="color:var(--indigo-600);font-weight:700;">${esc(regPseudonym)}</span></p>
           <p style="font-size:0.85rem;color:var(--gray-500);margin-bottom:2rem;">Puedes volver en cualquier momento a <strong>Consultar Estado</strong> para ver si ya fuiste emparejado y obtener los datos de tu destinatario.</p>
           <div class="flex gap-4 justify-center">
             <button class="btn btn-primary" onclick="App.navigate('home')">Volver al Inicio</button>
@@ -772,7 +772,7 @@ const App = (() => {
           </td>
           <td style="font-size:0.85rem;">${esc(r.email)}</td>
           <td>${r.matched ? '<span class="badge badge-green">Emparejado</span>' : '<span class="badge badge-amber">Esperando</span>'}</td>
-          <td><button class="btn btn-ghost btn-sm" style="color:var(--red-600);" onclick="App.deleteParticipant('${r.id}')" title="Eliminar participante">${ic('trash')}</button></td>
+          <td style="text-align:right;white-space:nowrap;"><button class="btn btn-ghost btn-sm" data-del="${r.id}" style="color:var(--red-600);" onclick="App.askDelete('${r.id}')">${ic('trash','16')} Eliminar</button></td>
         </tr>`; }).join('')}</tbody>
       </table></div>
     </div></div>`;
@@ -1168,9 +1168,28 @@ SITE_URL=https://tudominio.com</pre>
     }
   }
 
-  async function deleteParticipant(id) {
-    if (!confirm('¿Eliminar este participante y sus emparejamientos?')) return;
-    try { await api('/api/admin/participants/' + id, { method: 'DELETE' }); loadAdminDashboard(); } catch(e) { alert(e.message); }
+  // Confirmación inline (sin depender del confirm() nativo, que algunos
+  // navegadores/webviews bloquean y dejan el botón "sin hacer nada").
+  function askDelete(id) {
+    const btn = document.querySelector(`button[data-del="${id}"]`);
+    if (!btn) return;
+    const td = btn.closest('td');
+    td.innerHTML = `<span style="white-space:nowrap;display:inline-flex;gap:0.4rem;align-items:center;">
+      <span style="font-size:0.8rem;color:var(--ink-soft);">¿Borrar?</span>
+      <button class="btn btn-danger btn-sm" onclick="App.doDelete('${id}')">Sí, borrar</button>
+      <button class="btn btn-ghost btn-sm" onclick="App.loadAdminDashboard()">No</button>
+    </span>`;
+  }
+
+  async function doDelete(id) {
+    try {
+      await api('/api/admin/participants/' + id, { method: 'DELETE' });
+      loadAdminDashboard();
+    } catch(e) {
+      const btn = document.querySelector(`button[data-del="${id}"]`);
+      const td = btn ? btn.closest('td') : null;
+      if (td) td.innerHTML = `<span style="color:var(--red-600);font-size:0.8rem;">${esc(e.message)}</span>`;
+    }
   }
 
   function showClearConfirm() {
@@ -1438,7 +1457,7 @@ SMTP_FROM="Cartas a Desconocidos &lt;tu-correo@gmail.com&gt;"</pre>
   return {
     init, navigate, toggleCustomPseudo, newPseudo, submitPseudo, submitRegistration,
     checkStatus, adminLogin, loadAdminDashboard, switchTab, generateMatches, saveMatches, resetMatches, doImport,
-    sendEmails, deleteParticipant, showClearConfirm, clearAll, saveConfig, previewImage,
+    sendEmails, askDelete, doDelete, showClearConfirm, clearAll, saveConfig, previewImage,
     uploadImage, deleteImage, adminExport, adminLogout, exportCSV,
     loadSmtpStatus, testSmtp, previewEmail, previewFirstEmail, sendOneEmail, sendAllEmails,
   };
