@@ -257,6 +257,22 @@ tr:hover td { background: var(--cream); }
 .editor-grid { display: grid; gap: 1rem; }
 .editor-grid .form-group label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); font-family: 'JetBrains Mono', monospace; }
 
+/* ── Lista de participantes (tarjetas, sin scroll horizontal) ── */
+.plist { display: flex; flex-direction: column; gap: 0.6rem; }
+.pcard {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;
+  padding: 0.9rem 1rem; border: 1px solid var(--line); border-radius: 0.6rem;
+  background: var(--paper); flex-wrap: wrap;
+}
+.pcard.flag { background: var(--amber-100); border-color: var(--amber-600); }
+.pcard-main { flex: 1 1 260px; min-width: 0; }
+.pcard-head { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.3rem; }
+.pcard-pseudo { font-weight: 700; font-size: 0.95rem; }
+.pcard-name { font-size: 0.92rem; color: var(--ink); margin-bottom: 0.1rem; }
+.pcard-addr { font-size: 0.92rem; color: var(--ink); overflow-wrap: anywhere; }
+.pcard-sub { color: var(--ink-soft); font-size: 0.82rem; margin-top: 0.1rem; overflow-wrap: anywhere; }
+.pcard-action { flex-shrink: 0; }
+
 /* ── Image gallery (admin) ──────────────────────── */
 .img-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; }
 .img-card { position: relative; border-radius: 0.6rem; overflow: hidden; aspect-ratio: 1; background: var(--cream-deep); border: 1px solid var(--line); }

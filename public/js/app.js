@@ -757,24 +757,25 @@ const App = (() => {
         <h3>${p.length} Participantes</h3>
         ${(() => { const n = p.filter(r => addrIssues(r).length).length; return n ? `<span class="badge badge-amber" title="Direcciones posiblemente incompletas o falsas">⚠ ${n} por revisar</span>` : ''; })()}
       </div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Seudónimo</th><th>Nombre</th><th>Dirección</th><th>Email</th><th>Estado</th><th></th></tr></thead>
-        <tbody>${p.map(r => {
-          const issues = addrIssues(r);
-          const flag = issues.length ? ` <span class="badge badge-amber" title="${esc(issues.join(' · '))}" style="cursor:help;">⚠ revisar</span>` : '';
-          const line2 = [r.city, r.postal_code].filter(Boolean).map(esc).join(', ');
-          return `<tr${issues.length ? ' style="background:var(--amber-100);"' : ''}>
-          <td class="font-mono">${esc(r.pseudonym)}</td>
-          <td>${esc(r.name)}</td>
-          <td style="min-width:220px;">
-            <div>${esc(r.address) || '<span style="color:var(--red-600);">— sin dirección —</span>'}${flag}</div>
-            <div style="font-size:0.8rem;color:var(--gray-500);">${line2}${line2 && r.country ? ' · ' : ''}${esc(r.country)}</div>
-          </td>
-          <td style="font-size:0.85rem;">${esc(r.email)}</td>
-          <td>${r.matched ? '<span class="badge badge-green">Emparejado</span>' : '<span class="badge badge-amber">Esperando</span>'}</td>
-          <td style="text-align:right;white-space:nowrap;"><button class="btn btn-ghost btn-sm" data-del="${r.id}" style="color:var(--red-600);" onclick="App.askDelete('${r.id}')">${ic('trash','16')} Eliminar</button></td>
-        </tr>`; }).join('')}</tbody>
-      </table></div>
+      <div class="plist">${p.map(r => {
+        const issues = addrIssues(r);
+        const line2 = [r.city, r.postal_code].filter(Boolean).map(esc).join(', ');
+        return `<div class="pcard${issues.length ? ' flag' : ''}">
+          <div class="pcard-main">
+            <div class="pcard-head">
+              <span class="font-mono pcard-pseudo">${esc(r.pseudonym)}</span>
+              ${r.matched ? '<span class="badge badge-green">Emparejado</span>' : '<span class="badge badge-amber">Esperando</span>'}
+              ${issues.length ? `<span class="badge badge-amber" title="${esc(issues.join(' · '))}" style="cursor:help;">⚠ revisar</span>` : ''}
+            </div>
+            <div class="pcard-name">${esc(r.name)}</div>
+            <div class="pcard-addr">${esc(r.address) || '<span style="color:var(--red-600);">— sin dirección —</span>'}
+              <div class="pcard-sub">${line2}${line2 && r.country ? ' · ' : ''}${esc(r.country)} · ${esc(r.email)}</div>
+            </div>
+          </div>
+          <div class="pcard-action">
+            <button class="btn btn-ghost btn-sm" data-del="${r.id}" style="color:var(--red-600);" onclick="App.askDelete('${r.id}')">${ic('trash','16')} Eliminar</button>
+          </div>
+        </div>`; }).join('')}</div>
     </div></div>`;
   }
 
@@ -1173,8 +1174,8 @@ SITE_URL=https://tudominio.com</pre>
   function askDelete(id) {
     const btn = document.querySelector(`button[data-del="${id}"]`);
     if (!btn) return;
-    const td = btn.closest('td');
-    td.innerHTML = `<span style="white-space:nowrap;display:inline-flex;gap:0.4rem;align-items:center;">
+    const box = btn.closest('.pcard-action') || btn.closest('td') || btn.parentElement;
+    box.innerHTML = `<span style="white-space:nowrap;display:inline-flex;gap:0.4rem;align-items:center;">
       <span style="font-size:0.8rem;color:var(--ink-soft);">¿Borrar?</span>
       <button class="btn btn-danger btn-sm" onclick="App.doDelete('${id}')">Sí, borrar</button>
       <button class="btn btn-ghost btn-sm" onclick="App.loadAdminDashboard()">No</button>
@@ -1187,8 +1188,8 @@ SITE_URL=https://tudominio.com</pre>
       loadAdminDashboard();
     } catch(e) {
       const btn = document.querySelector(`button[data-del="${id}"]`);
-      const td = btn ? btn.closest('td') : null;
-      if (td) td.innerHTML = `<span style="color:var(--red-600);font-size:0.8rem;">${esc(e.message)}</span>`;
+      const box = btn ? (btn.closest('.pcard-action') || btn.closest('td') || btn.parentElement) : null;
+      if (box) box.innerHTML = `<span style="color:var(--red-600);font-size:0.8rem;">${esc(e.message)}</span>`;
     }
   }
 
